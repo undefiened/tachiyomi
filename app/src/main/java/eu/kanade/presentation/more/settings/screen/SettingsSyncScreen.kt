@@ -91,8 +91,8 @@ object SettingsSyncScreen : SearchableSettings {
                         showDialog.value = true
                     },
                 ),
-                //TODO: Add last sync time
-                Preference.PreferenceItem.InfoPreference("last sync: 2021-09-01 12:00:00"),
+                // TODO: Add last sync time
+                Preference.PreferenceItem.InfoPreference("Last sync at: 2021-09-01 12:00:00"),
             ),
         )
     }

@@ -498,6 +498,10 @@
     <string name="backup_info">You should keep copies of backups in other places as well.</string>
 
       <!-- Sync section -->
+    <string name="syncing_data">Syncing data</string>
+    <string name="sync_error">Syncing data failed</string>
+    <string name="sync_complete">Syncing data complete</string>
+    <string name="sync_in_progress">Sync is already in progress</string>
     <string name="pref_sync_host">Sync host</string>
     <string name="pref_sync_host_summ">Set the host to sync your library with</string>
     <string name="pref_sync_api_key">Sync API key</string>

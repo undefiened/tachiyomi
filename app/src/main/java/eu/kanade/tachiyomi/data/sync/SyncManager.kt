@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.data.sync
 import android.content.Context
 import android.util.Log
 import eu.kanade.domain.chapter.model.copyFrom
+import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.models.Data
 import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncCategory
@@ -67,20 +68,6 @@ class SyncManager(
     private val libraryPreferences: LibraryPreferences = Injekt.get()
     private val getCategories: GetCategories = Injekt.get()
     private val getFavorites: GetFavorites = Injekt.get()
-
-    /**
-     * Updates the last local sync time to the current time.
-     *
-     * This function should be called whenever there are local changes made to
-     * the library, such as adding or removing manga, updating categories, etc.
-     * Storing the latest sync timestamp in the preferences allows for comparison
-     * with the server's last sync time to determine which changes need to be
-     * synchronized.
-     */
-    fun updateLastLocalSync() {
-        val currentTime = Instant.now()
-        syncPreferences.syncLastLocalUpdate().set(currentTime)
-    }
 
     /**
      * Syncs data with the remote server.
@@ -319,8 +306,6 @@ class SyncManager(
                 if (syncDataResponse.update_required == true) {
                     // Restore everything
                     val mangaList = syncDataResponse.data?.manga ?: emptyList()
-                    val allCategories = mangaList.flatMap { syncManga: SyncManga -> syncManga.categories ?: emptyList() }
-                    val categories = allCategories.map { it }
                     val tracking = mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
                     val history = mangaList.flatMap { it.history ?: emptyList() }.map { SyncHistory(it.url, it.lastRead, it.readDuration) }
                     val syncCategories = syncDataResponse.data?.categories ?: emptyList()
@@ -331,6 +316,9 @@ class SyncManager(
 
                     // restore manga / everything.
                     restoreManga(mangaList, history, tracking, syncCategories, chapters)
+
+                    // Trigger a global update after restoring everything: this should fix the UI prev/next chapter buttons.
+                    LibraryUpdateJob.startNow(context)
 
                     syncPreferences.syncLastSync().set(Instant.now())
                     // if device id is 0, update it
@@ -364,6 +352,18 @@ class SyncManager(
         }
     }
 
+    /**
+     * Restores manga data, including chapters, history, tracking, and categories,
+     * from a list of SyncManga objects. This function handles both existing manga
+     * and new manga that are not present in the database. It updates or inserts
+     * the corresponding data in the database as needed.
+     *
+     * @param syncMangas A list of SyncManga objects containing the manga data to sync.
+     * @param history A list of SyncHistory objects containing the history data to sync.
+     * @param tracks A list of SyncTracking objects containing the tracking data to sync.
+     * @param syncCategories A list of SyncCategory objects containing the category data to sync.
+     * @param chapters A list of SyncChapter objects containing the chapter data to sync.
+     */
     private suspend fun restoreManga(
         syncMangas: List<SyncManga>,
         history: List<SyncHistory>,
@@ -386,6 +386,15 @@ class SyncManager(
         }
     }
 
+    /**
+     * Restores existing manga data by updating the local database with the latest information.
+     * This function processes the given SyncManga object and updates the corresponding
+     * data for the existing manga.
+     *
+     * @param syncManga A SyncManga object containing the manga data to sync.
+     * @param dbManga A Mangas object containing the existing manga data in the local database.
+     * @return Manga The updated manga object after syncing the latest data.
+     */
     private suspend fun restoreExistingManga(syncManga: SyncManga, dbManga: Mangas): Manga {
         var manga = syncManga.toManga().copy(id = dbManga._id)
         manga = manga.copyFrom(dbManga)
@@ -407,6 +416,15 @@ class SyncManager(
         )
     }
 
+    /**
+     * Restores the additional sync data related to a given SyncManga object, including the
+     * reading history, tracking, and categories.
+     *
+     * @param syncManga A SyncManga object containing the manga data to sync.
+     * @param history A list of SyncHistory objects containing the reading history data to sync.
+     * @param tracks A list of SyncTracking objects containing the tracking data to sync.
+     * @param syncCategories A list of SyncCategory objects containing the category data to sync.
+     */
     private suspend fun restoreExtras(syncManga: SyncManga, history: List<SyncHistory>, tracks: List<SyncTracking>, syncCategories: List<SyncCategory>) {
         // Convert SyncManga to Manga
         val manga = syncManga.toManga()
@@ -416,6 +434,14 @@ class SyncManager(
         restoreTracking(manga, tracks)
     }
 
+    /**
+     * Restores the categories from a list of SyncCategory objects. If a category with the same
+     * name already exists in the database, the existing category's ID is assigned to the
+     * SyncCategory's corresponding category. Otherwise, a new category is created and added to
+     * the database.
+     *
+     * @param syncCategories A list of SyncCategory objects containing the category data to sync.
+     */
     private suspend fun restoreSyncCategories(syncCategories: List<SyncCategory>) {
         // Get categories from db
         val dbCategories = getCategories.await()
@@ -451,6 +477,17 @@ class SyncManager(
         )
     }
 
+    /**
+     * Restores the categories for a specific manga by associating the Manga with
+     * the categories from a list of category IDs and SyncCategory objects.
+     * The function first retrieves the corresponding Manga from the database.
+     * Then, it iterates through the categories, finds the matching SyncCategory,
+     * and associates it with the Manga in the database.
+     *
+     * @param manga The Manga for which the categories need to be restored.
+     * @param categories A list of category IDs to be associated with the Manga.
+     * @param syncCategories A list of SyncCategory objects containing the category data to sync.
+     */
     private suspend fun restoreSyncCategoriesForManga(manga: Manga, categories: List<Long>, syncCategories: List<SyncCategory>) {
         val m = getMangaFromDatabase(manga.url, manga.source)
         val dbCategories = getCategories.await()
@@ -481,6 +518,17 @@ class SyncManager(
         }
     }
 
+    /**
+     * Restores the reading history from a list of SyncHistory objects.
+     * The function iterates through the SyncHistory objects, and for each
+     * one, it checks if the corresponding history record is already in the
+     * database. If the record is found, it updates the last_read and
+     * time_read fields with the maximum values between the existing and
+     * the new SyncHistory data. If the record is not found, it creates a
+     * new history record using the chapter and reading progress data.
+     *
+     * @param history A list of SyncHistory objects containing the reading history data to sync.
+     */
     private suspend fun restoreHistory(history: List<SyncHistory>) {
         // List containing history to be updated
         val toUpdate = mutableListOf<HistoryUpdate>()
@@ -529,6 +577,16 @@ class SyncManager(
         }
     }
 
+    /**
+     * Restores tracking data for a given manga from a list of SyncTracking objects.
+     * The function iterates through the SyncTracking objects and checks if the
+     * corresponding tracking record is already in the database. If the record is
+     * found, it updates the fields with the new data. If the record is not found,
+     * it inserts a new tracking record using the given manga and tracking data.
+     *
+     * @param manga The Manga object to which the tracking data belongs.
+     * @param tracks A list of SyncTracking objects containing the tracking data to sync.
+     */
     private suspend fun restoreTracking(manga: Manga, tracks: List<SyncTracking>) {
         // Fix foreign keys with the current manga id
         val tracks = tracks.map { syncTrack ->
@@ -607,6 +665,16 @@ class SyncManager(
         }
     }
 
+    /**
+     * Restores chapter data for a given manga from a list of SyncChapter objects.
+     * The function processes each SyncChapter object and maps it to a corresponding
+     * Chapter object. If the chapter is already in the database, it updates the
+     * fields with the new data. If the chapter is not found in the database, it
+     * inserts a new chapter record using the given manga and chapter data.
+     *
+     * @param manga The Manga object to which the chapter data belongs.
+     * @param chapters A list of SyncChapter objects containing the chapter data to sync.
+     */
     private suspend fun restoreChapters(manga: Manga, chapters: List<SyncChapter>) {
         val dbChapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(manga.id) }
 

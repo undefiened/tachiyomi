@@ -44,7 +44,7 @@ object SettingsSyncScreen : SearchableSettings {
     fun getSyncHostPref(syncPreferences: SyncPreferences): Preference.PreferenceItem.EditTextPreference {
         return Preference.PreferenceItem.EditTextPreference(
             title = stringResource(R.string.pref_sync_host),
-            subtitle = stringResource(R.string.pref_sync_api_key_summ),
+            subtitle = stringResource(R.string.pref_sync_host_summ),
             onValueChanged = { newValue ->
                 syncPreferences.syncHost().set(newValue)
                 true
@@ -59,7 +59,7 @@ object SettingsSyncScreen : SearchableSettings {
     fun getSyncAPIKeyPref(syncPreferences: SyncPreferences): Preference.PreferenceItem.EditTextPreference {
         return Preference.PreferenceItem.EditTextPreference(
             title = stringResource(R.string.pref_sync_api_key),
-            subtitle = stringResource(R.string.pref_sync_host_summ),
+            subtitle = stringResource(R.string.pref_sync_api_key_summ),
             onValueChanged = { newValue ->
                 syncPreferences.syncAPIKey().set(newValue)
                 true

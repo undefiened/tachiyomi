@@ -119,6 +119,7 @@ fun syncTrackingToTrack(syncTracking: SyncTracking, mangaId: Long): Track {
 
 @Serializable
 data class SyncChapter(
+    @SerialName("id") val id: Long? = null,
     val mangaId: Long? = null,
     val url: String? = null,
     val name: String? = null,
@@ -130,10 +131,13 @@ data class SyncChapter(
     val dateUpload: Long? = null,
     val chapterNumber: Int? = null,
     val sourceOrder: Long? = 0,
+    val mangaUrl: String? = null,
+    val mangaSource: Long? = null,
 ) {
     companion object {
-        val syncChapterMapper = { _: Long, mangaId: Long, url: String, name: String, scanlator: String?, read: Boolean, bookmark: Boolean, lastPageRead: Long, chapterNumber: Float, source_order: Long, dateFetch: Long, dateUpload: Long ->
+        val syncChapterMapper = { id: Long, mangaId: Long, url: String, name: String, scanlator: String?, read: Boolean, bookmark: Boolean, lastPageRead: Long, chapterNumber: Float, source_order: Long, dateFetch: Long, dateUpload: Long ->
             SyncChapter(
+                id = id,
                 mangaId = mangaId,
                 url = url,
                 name = name,

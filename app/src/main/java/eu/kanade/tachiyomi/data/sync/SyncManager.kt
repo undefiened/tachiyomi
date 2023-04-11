@@ -172,6 +172,8 @@ class SyncManager(
                         dateUpload = chapter.dateUpload,
                         chapterNumber = chapter.chapterNumber,
                         sourceOrder = chapter.sourceOrder,
+                        mangaUrl = m.url,
+                        mangaSource = m.source,
                     )
                 },
                 tracking = mutableListOf(),
@@ -184,8 +186,6 @@ class SyncManager(
             if (tracks.isNotEmpty()) {
                 syncManga.tracking?.addAll(tracks)
             }
-
-            Log.i("SyncManager", "SyncManga: $syncManga")
 
             syncMangaList.add(syncManga)
         }
@@ -373,12 +373,13 @@ class SyncManager(
     ) {
         syncMangas.forEach { syncManga ->
             val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
+            val mangaChapters = chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
             if (dbManga != null) {
                 val restoredManga = restoreExistingManga(syncManga, dbManga)
-                restoreChapters(restoredManga, chapters)
+                restoreChapters(restoredManga, mangaChapters)
             } else {
                 val restoredNewManga = restoreNewManga(syncManga)
-                restoreChapters(restoredNewManga, chapters)
+                restoreChapters(restoredNewManga, mangaChapters)
             }
 
             restoreExtras(syncManga, history, tracks, syncCategories)
@@ -468,10 +469,6 @@ class SyncManager(
                 }
             }
         }
-
-        // Log the categories and mangaCategoriesToUpdate for debugging
-        Log.i("Restore", "Manga: ${manga.title}, categories: $categories")
-        Log.i("Restore", "Manga: ${manga.title}, mangaCategoriesToUpdate: $mangaCategoriesToUpdate")
 
         // Update database
         if (mangaCategoriesToUpdate.isNotEmpty()) {
@@ -611,43 +608,35 @@ class SyncManager(
     }
 
     private suspend fun restoreChapters(manga: Manga, chapters: List<SyncChapter>) {
-        // Log the input chapters
-        Log.i("Restore-chapters", "Input chapters: ${chapters.joinToString(separator = "\n")}")
         val dbChapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(manga.id) }
-        // Log the dbChapters list
-        Log.i("Restore-chapters", "dbChapters: ${dbChapters.joinToString(separator = "\n")}")
 
         val processed = chapters.map { syncChapter ->
             val chapter = syncChapterToChapter(syncChapter, manga.id)
-            val dbChapter = dbChapters.find { it._id == chapter.id }
+            val dbChapter = dbChapters.find { it.url == chapter.url }
+            var updatedChapter = chapter
             if (dbChapter != null) {
-                chapter.copyFrom(dbChapter)
-                    .let {
-                        if (dbChapter.read && !it.read) {
-                            it.copy(read = dbChapter.read, lastPageRead = dbChapter.last_page_read)
-                        } else if (it.lastPageRead == 0L && dbChapter.last_page_read != 0L) {
-                            it.copy(lastPageRead = dbChapter.last_page_read)
-                        } else {
-                            it
-                        }
-                    }
-                    .let {
-                        if (!it.bookmark && dbChapter.bookmark) {
-                            it.copy(bookmark = dbChapter.bookmark)
-                        } else {
-                            it
-                        }
-                    }
-            } else {
-                chapter
+                updatedChapter = updatedChapter.copy(id = dbChapter._id)
+                updatedChapter = updatedChapter.copyFrom(dbChapter)
+                if (dbChapter.read && !updatedChapter.read) {
+                    updatedChapter = updatedChapter.copy(read = dbChapter.read, lastPageRead = dbChapter.last_page_read)
+                } else if (updatedChapter.lastPageRead == 0L && dbChapter.last_page_read != 0L) {
+                    updatedChapter = updatedChapter.copy(lastPageRead = dbChapter.last_page_read)
+                }
+                if (!updatedChapter.bookmark && dbChapter.bookmark) {
+                    updatedChapter = updatedChapter.copy(bookmark = dbChapter.bookmark)
+                }
             }
+
+            updatedChapter.copy(mangaId = manga.id)
         }
-        // Log the processed chapters
-        Log.i("Restore-chapters", "Processed chapters: ${processed.joinToString(separator = "\n")}")
 
         val newChapters = processed.groupBy { it.id > 0 }
-        newChapters[true]?.let { updateKnownChapters(it) }
-        newChapters[false]?.let { insertChapters(it) }
+        newChapters[true]?.let {
+            updateKnownChapters(it)
+        }
+        newChapters[false]?.let {
+            insertChapters(it)
+        }
     }
 
     /**

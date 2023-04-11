@@ -9,13 +9,18 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.launch
 import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 object SettingsSyncScreen : SearchableSettings {
 
@@ -69,13 +74,22 @@ object SettingsSyncScreen : SearchableSettings {
     fun getSyncNowPref(syncPreferences: SyncPreferences): Preference.PreferenceGroup {
         val scope = rememberCoroutineScope()
         val showDialog = remember { mutableStateOf(false) }
+        val context = LocalContext.current
+        val lastSync = syncPreferences.syncLastSync().get()
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
+        val formattedLastSync = formatter.format(lastSync)
+        val formattedLastLocalChange = formatter.format(syncPreferences.syncLastLocalUpdate().get())
 
         if (showDialog.value) {
             SyncConfirmationDialog(
                 onConfirm = {
                     showDialog.value = false
                     scope.launch {
-                        // TODO: Perform sync here
+                        if (!SyncDataJob.isManualJobRunning(context)) {
+                            SyncDataJob.startNow(context)
+                        } else {
+                            context.toast(R.string.sync_in_progress)
+                        }
                     }
                 },
                 onDismissRequest = { showDialog.value = false },
@@ -91,8 +105,8 @@ object SettingsSyncScreen : SearchableSettings {
                         showDialog.value = true
                     },
                 ),
-                // TODO: Add last sync time
-                Preference.PreferenceItem.InfoPreference("Last sync at: 2021-09-01 12:00:00"),
+                Preference.PreferenceItem.InfoPreference("Last sync at: $formattedLastSync"),
+                Preference.PreferenceItem.InfoPreference("Last local change at: $formattedLastLocalChange"),
             ),
         )
     }

@@ -160,6 +160,7 @@ class SyncManager(
                 viewer = m.viewerFlags.toInt() and ReadingModeType.MASK,
                 chapters = chapters.map { chapter ->
                     SyncChapter(
+                        id = chapter.id,
                         mangaId = chapter.mangaId,
                         url = chapter.url,
                         name = chapter.name,
@@ -325,19 +326,13 @@ class SyncManager(
                     val syncCategories = syncDataResponse.data?.categories ?: emptyList()
                     val chapters = mangaList.flatMap { it.chapters ?: emptyList() }
 
+                    // Restore system categories first.
+                    syncDataResponse.data?.categories?.let { restoreSyncCategories(it) }
+
                     // restore manga / everything.
                     restoreManga(mangaList, history, tracking, syncCategories, chapters)
 
-                    // Restore categories
-                    syncDataResponse.data?.categories?.let { restoreSyncCategories(it) }
-
-                    // Update the last sync time preference
-//                    syncDataResponse.sync?.last_synced_epoch?.let {
-//                        Instant.ofEpochMilli(
-//                            it,
-//                        )
-//                    }?.let { syncPreferences.syncLastSync().set(it) }
-//                    syncPreferences.syncLastSync().set(Instant.now())
+                    syncPreferences.syncLastSync().set(Instant.now())
                     // if device id is 0, update it
                     if (syncPreferences.deviceID().get() == 0) {
                         syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
@@ -380,13 +375,10 @@ class SyncManager(
             val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
             if (dbManga != null) {
                 val restoredManga = restoreExistingManga(syncManga, dbManga)
-
-                // Filter chapters based on the current manga's id
-                val chaptersForManga = chapters.filter { it.mangaId == restoredManga.id }
-
-                restoreChapters(restoredManga, chaptersForManga)
+                restoreChapters(restoredManga, chapters)
             } else {
-                restoreNewManga(syncManga)
+                val restoredNewManga = restoreNewManga(syncManga)
+                restoreChapters(restoredNewManga, chapters)
             }
 
             restoreExtras(syncManga, history, tracks, syncCategories)
@@ -619,14 +611,17 @@ class SyncManager(
     }
 
     private suspend fun restoreChapters(manga: Manga, chapters: List<SyncChapter>) {
+        // Log the input chapters
+        Log.i("Restore-chapters", "Input chapters: ${chapters.joinToString(separator = "\n")}")
         val dbChapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(manga.id) }
+        // Log the dbChapters list
+        Log.i("Restore-chapters", "dbChapters: ${dbChapters.joinToString(separator = "\n")}")
 
         val processed = chapters.map { syncChapter ->
             val chapter = syncChapterToChapter(syncChapter, manga.id)
-            val dbChapter = dbChapters.find { it.url == chapter.url }
+            val dbChapter = dbChapters.find { it._id == chapter.id }
             if (dbChapter != null) {
-                chapter.copy(id = dbChapter._id)
-                    .copyFrom(dbChapter)
+                chapter.copyFrom(dbChapter)
                     .let {
                         if (dbChapter.read && !it.read) {
                             it.copy(read = dbChapter.read, lastPageRead = dbChapter.last_page_read)
@@ -648,7 +643,7 @@ class SyncManager(
             }
         }
         // Log the processed chapters
-        Log.i("Restore", "Processed chapters: ${processed.joinToString(separator = "\n")}")
+        Log.i("Restore-chapters", "Processed chapters: ${processed.joinToString(separator = "\n")}")
 
         val newChapters = processed.groupBy { it.id > 0 }
         newChapters[true]?.let { updateKnownChapters(it) }

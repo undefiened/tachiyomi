@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.data.sync
 
 import android.content.Context
-import android.util.Log
 import eu.kanade.domain.chapter.model.copyFrom
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.models.Data
@@ -21,6 +20,7 @@ import eu.kanade.tachiyomi.data.sync.models.SyncTracking.Companion.syncTrackMapp
 import eu.kanade.tachiyomi.data.sync.models.syncCategoryMapper
 import eu.kanade.tachiyomi.data.sync.models.syncChapterToChapter
 import eu.kanade.tachiyomi.data.sync.models.syncTrackingToTrack
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.model.copyFrom
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType
 import eu.kanade.tachiyomi.util.system.copyToClipboard
@@ -28,9 +28,10 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import logcat.LogPriority
+import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
-import okhttp3.Request
+import okhttp3.RequestBody.Companion.gzip
 import okhttp3.RequestBody.Companion.toRequestBody
 import tachiyomi.core.util.lang.toLong
 import tachiyomi.core.util.system.logcat
@@ -51,7 +52,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.lang.StrictMath.max
 import java.time.Instant
-import java.util.*
+import java.util.Date
 
 /**
  * A manager to handle synchronization tasks in the app, such as updating
@@ -61,13 +62,16 @@ import java.util.*
  */
 class SyncManager(
     private val context: Context,
+    private val handler: DatabaseHandler = Injekt.get(),
+    private val sourceManager: SourceManager = Injekt.get(),
+    private val syncPreferences: SyncPreferences = Injekt.get(),
+    private val libraryPreferences: LibraryPreferences = Injekt.get(),
+    private val getCategories: GetCategories = Injekt.get(),
+    private val getFavorites: GetFavorites = Injekt.get(),
+    private var json: Json = Json {
+        ignoreUnknownKeys = true
+    },
 ) {
-    private val handler: DatabaseHandler = Injekt.get()
-    private val sourceManager: SourceManager = Injekt.get()
-    private val syncPreferences: SyncPreferences = Injekt.get()
-    private val libraryPreferences: LibraryPreferences = Injekt.get()
-    private val getCategories: GetCategories = Injekt.get()
-    private val getFavorites: GetFavorites = Injekt.get()
 
     /**
      * Syncs data with the remote server.
@@ -86,15 +90,10 @@ class SyncManager(
     suspend fun syncData() {
         val favorites = getFavorites.await()
 
-        Log.i("SyncManager", "Mangas to sync: $favorites")
+        logcat(LogPriority.DEBUG) { "Mangas to sync: $favorites" }
 
-        // Manga data
         val mangaList = mangaList(favorites)
-
-        // Extension data
         val extensionsList = getExtensionInfo(favorites)
-
-        // Category data
         val categoriesList = getCategories()
 
         val host = syncPreferences.syncHost().get()
@@ -232,7 +231,7 @@ class SyncManager(
         // Create the SyncStatus object
         val syncStatus = SyncStatus(
             lastSynced = Instant.now().toString(),
-            last_synced_epoch = syncPreferences.syncLastLocalUpdate().get().toEpochMilli(),
+            lastSyncedEpoch = syncPreferences.syncLastLocalUpdate().get().toEpochMilli(),
             status = "pending",
         )
 
@@ -259,12 +258,14 @@ class SyncManager(
         // Convert the SyncData object to a JSON string
         val jsonData = Json.encodeToString(syncData)
 
+//        Log.d("compressed", compressedData.joinToString(" ") { String.format("%02X", it) })
+
         // Send the JSON data to the server
         sendSyncData(url, apiKey, jsonData)
     }
 
     /**
-     * Sends the sync data to the server as a JSON string.
+     * Sends the sync data to the server as a compressed Gzip.
      *
      * This function prepares an HTTP POST request with the given URL, API key, and JSON data.
      * The JSON data is sent in the request body, and the API key is added as a header.
@@ -278,19 +279,20 @@ class SyncManager(
      */
     private suspend fun sendSyncData(url: String, apiKey: String, jsonData: String) {
         val client = OkHttpClient()
-        val json = Json { ignoreUnknownKeys = true }
+        val mediaType = "application/gzip".toMediaTypeOrNull()
+        val body = jsonData.toRequestBody(mediaType).gzip()
 
-        val mediaType = "application/json".toMediaTypeOrNull()
-        val body =
-            jsonData.toRequestBody(
-                mediaType,
-            )
-        val request = Request.Builder()
-            .url(url)
-            .post(body)
-            .addHeader("Content-Type", "application/json")
-            .addHeader("X-API-Token", apiKey)
+        val headers = Headers.Builder()
+            .add("Content-Type", "application/gzip")
+            .add("Content-Encoding", "gzip")
+            .add("X-API-Token", apiKey)
             .build()
+
+        val request = POST(
+            url = url,
+            headers = headers,
+            body = body,
+        )
 
         client.newCall(request).execute().use { response ->
             val responseBody = response.body.string()
@@ -298,7 +300,7 @@ class SyncManager(
             if (response.isSuccessful) {
                 val syncDataResponse: SData = json.decodeFromString(responseBody)
                 logcat(
-                    LogPriority.INFO,
+                    LogPriority.DEBUG,
                     null,
                 ) { "Sync response: ${syncDataResponse.update_required}" }
 
@@ -321,28 +323,32 @@ class SyncManager(
                     LibraryUpdateJob.startNow(context)
 
                     syncPreferences.syncLastSync().set(Instant.now())
-                    // if device id is 0, update it
-                    if (syncPreferences.deviceID().get() == 0) {
+                    // if device id is 0 and not equal to the server device id (this happens when db is fresh and app is not), update it
+                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
                         syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
                     }
                 } else {
                     // no update is required as local device is up to date
-                    if (syncDataResponse.update_required == false) {
-                        // Update the last sync time preference
-                        syncDataResponse.sync?.last_synced_epoch?.let {
-                            Instant.ofEpochMilli(
-                                it,
-                            )
-                        }?.let { syncPreferences.syncLastSync().set(it) }
-                        syncPreferences.syncLastSync().set(Instant.now())
 
-                        // notify user that the sync is up to date.
-                        SyncNotifier(context).showSyncComplete()
-                        logcat(
-                            LogPriority.INFO,
-                            null,
-                        ) { "Local data is up to date! not syncing!" }
+                    // Update the last sync time preference
+                    syncDataResponse.sync?.lastSyncedEpoch?.let {
+                        Instant.ofEpochMilli(
+                            it,
+                        )
+                    }?.let { syncPreferences.syncLastSync().set(it) }
+                    syncPreferences.syncLastSync().set(Instant.now())
+
+                    // if device id is 0 and not equal to the server device id (this happens when db is fresh and app is not), update it
+                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
+                        syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
                     }
+
+                    // notify user that the sync is up to date.
+                    SyncNotifier(context).showSyncComplete()
+                    logcat(
+                        LogPriority.INFO,
+                        null,
+                    ) { "Local data is up to date! not syncing!" }
                 }
             } else {
                 SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")

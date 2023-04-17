@@ -1,5 +1,6 @@
 package eu.kanade.presentation.more.settings.screen
 
+import android.text.format.DateUtils
 import androidx.annotation.StringRes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -19,8 +20,6 @@ import kotlinx.coroutines.launch
 import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 object SettingsSyncScreen : SearchableSettings {
 
@@ -34,51 +33,28 @@ object SettingsSyncScreen : SearchableSettings {
         val syncPreferences = Injekt.get<SyncPreferences>()
 
         return listOf(
-            getSyncHostPref(syncPreferences = syncPreferences),
-            getSyncAPIKeyPref(syncPreferences = syncPreferences),
+            Preference.PreferenceItem.EditTextPreference(
+                title = stringResource(R.string.pref_sync_host),
+                subtitle = stringResource(R.string.pref_sync_host_summ),
+                pref = syncPreferences.syncHost(),
+            ),
+            Preference.PreferenceItem.EditTextPreference(
+                title = stringResource(R.string.pref_sync_api_key),
+                subtitle = stringResource(R.string.pref_sync_api_key_summ),
+                pref = syncPreferences.syncAPIKey(),
+            ),
             getSyncNowPref(syncPreferences = syncPreferences),
         )
     }
 
     @Composable
-    fun getSyncHostPref(syncPreferences: SyncPreferences): Preference.PreferenceItem.EditTextPreference {
-        return Preference.PreferenceItem.EditTextPreference(
-            title = stringResource(R.string.pref_sync_host),
-            subtitle = stringResource(R.string.pref_sync_host_summ),
-            onValueChanged = { newValue ->
-                syncPreferences.syncHost().set(newValue)
-                true
-            },
-            enabled = true,
-            icon = null,
-            pref = syncPreferences.syncHost(),
-        )
-    }
-
-    @Composable
-    fun getSyncAPIKeyPref(syncPreferences: SyncPreferences): Preference.PreferenceItem.EditTextPreference {
-        return Preference.PreferenceItem.EditTextPreference(
-            title = stringResource(R.string.pref_sync_api_key),
-            subtitle = stringResource(R.string.pref_sync_api_key_summ),
-            onValueChanged = { newValue ->
-                syncPreferences.syncAPIKey().set(newValue)
-                true
-            },
-            enabled = true,
-            icon = null,
-            pref = syncPreferences.syncAPIKey(),
-        )
-    }
-
-    @Composable
-    fun getSyncNowPref(syncPreferences: SyncPreferences): Preference.PreferenceGroup {
+    private fun getSyncNowPref(syncPreferences: SyncPreferences): Preference.PreferenceGroup {
         val scope = rememberCoroutineScope()
         val showDialog = remember { mutableStateOf(false) }
         val context = LocalContext.current
         val lastSync = syncPreferences.syncLastSync().get()
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
-        val formattedLastSync = formatter.format(lastSync)
-        val formattedLastLocalChange = formatter.format(syncPreferences.syncLastLocalUpdate().get())
+        val formattedLastSync = DateUtils.getRelativeTimeSpanString(lastSync.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
+        val formattedLastLocalChange = DateUtils.getRelativeTimeSpanString(syncPreferences.syncLastLocalUpdate().get().toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
 
         if (showDialog.value) {
             SyncConfirmationDialog(
@@ -105,8 +81,7 @@ object SettingsSyncScreen : SearchableSettings {
                         showDialog.value = true
                     },
                 ),
-                Preference.PreferenceItem.InfoPreference("Last sync at: $formattedLastSync"),
-                Preference.PreferenceItem.InfoPreference("Last local change at: $formattedLastLocalChange"),
+                Preference.PreferenceItem.InfoPreference("Last sync at: $formattedLastSync \nLast local change at: $formattedLastLocalChange"),
             ),
         )
     }

@@ -44,6 +44,10 @@ SELECT *
 FROM mangas
 WHERE favorite = 1;
 
+getAllManga:
+SELECT *
+FROM mangas;
+
 getSourceIdWithFavoriteCount:
 SELECT
 source,

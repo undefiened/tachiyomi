@@ -64,7 +64,6 @@ object Notifications {
      */
     private const val GROUP_SYNC = "group_sync"
     const val CHANNEL_SYNC_PROGRESS = "sync_progress_channel"
-    const val CHANNEL_SYNC_ERROR = "sync_error_channel"
     const val ID_SYNC_PROGRESS = -601
     const val CHANNEL_SYNC_COMPLETE = "sync_complete_channel"
     const val ID_SYNC_COMPLETE = -602
@@ -181,12 +180,6 @@ object Notifications {
                 },
                 buildNotificationChannel(CHANNEL_SYNC_COMPLETE, IMPORTANCE_HIGH) {
                     setName(context.getString(R.string.channel_complete))
-                    setGroup(GROUP_SYNC)
-                    setShowBadge(false)
-                    setSound(null, null)
-                },
-                buildNotificationChannel(CHANNEL_SYNC_ERROR, IMPORTANCE_HIGH) {
-                    setName(context.getString(R.string.channel_errors))
                     setGroup(GROUP_SYNC)
                     setShowBadge(false)
                     setSound(null, null)

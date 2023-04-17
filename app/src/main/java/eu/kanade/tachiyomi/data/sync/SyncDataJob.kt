@@ -40,20 +40,21 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
             notifier.showSyncError(e.message)
             Result.failure()
         } finally {
-            context.cancelNotification(Notifications.ID_BACKUP_PROGRESS)
+            context.cancelNotification(Notifications.ID_SYNC_PROGRESS)
         }
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         return ForegroundInfo(
-            Notifications.ID_BACKUP_PROGRESS,
+            Notifications.ID_SYNC_PROGRESS,
             notifier.showSyncProgress().build(),
         )
     }
 
     companion object {
-        private const val TAG_AUTO = "SyncDataJob"
-        private const val TAG_MANUAL = "$TAG_AUTO:manual"
+        private const val TAG_JOB = "SyncDataJob"
+        private const val TAG_AUTO = "$TAG_JOB:auto"
+        private const val TAG_MANUAL = "$TAG_JOB:manual"
 
         fun isManualJobRunning(context: Context): Boolean {
             return context.workManager.isRunning(TAG_MANUAL)

@@ -390,6 +390,8 @@ class SyncManager(
 
             restoreExtras(syncManga, history, tracks, syncCategories)
         }
+        // update the favorite status for all non-sync manga
+        updateFavoriteStatusForNonSyncManga(syncMangas)
     }
 
     /**
@@ -420,6 +422,25 @@ class SyncManager(
             initialized = manga.description != null,
             id = insertManga(manga),
         )
+    }
+
+    /**
+     * Updates the favorite status for all local manga that are not included in the given list of SyncManga.
+     * If a local manga is marked as favorite but not found in the SyncManga list, its favorite status will be updated to false.
+     *
+     * @param syncMangaList a list of SyncManga to compare against the local manga list
+     */
+    private suspend fun updateFavoriteStatusForNonSyncManga(syncMangaList: List<SyncManga>) {
+        val localMangaList = getAllMangaFromDatabase()
+
+        localMangaList.forEach { dbManga ->
+            val syncManga = syncMangaList.find { it.url == dbManga.url && it.source == dbManga.source }
+
+            if (syncManga == null && dbManga.favorite) {
+                val updatedManga = convertMangasToManga(dbManga).copy(favorite = false)
+                updateManga(updatedManga)
+            }
+        }
     }
 
     /**
@@ -520,6 +541,11 @@ class SyncManager(
                 mangaCategoriesToUpdate.forEach { (mangaId, categoryId) ->
                     mangas_categoriesQueries.insert(mangaId, categoryId)
                 }
+            }
+        } else {
+            // remove the categories if the manga is not in any category (default category)
+            handler.await(true) {
+                mangas_categoriesQueries.deleteMangaCategoryByMangaId(mangaId)
             }
         }
     }
@@ -780,6 +806,15 @@ class SyncManager(
     }
 
     /**
+     * Retrieves all manga from the local database.
+     *
+     * @return a list of all manga stored in the database
+     */
+    private suspend fun getAllMangaFromDatabase(): List<Mangas> {
+        return handler.awaitList { mangasQueries.getAllManga() }
+    }
+
+    /**
      * Inserts list of chapters
      */
     private suspend fun insertChapters(chapters: List<tachiyomi.domain.chapter.model.Chapter>) {
@@ -849,4 +884,33 @@ class SyncManager(
             }
         }
     }
+}
+
+/**
+ * Converts a Mangas object to a Manga object.
+ *
+ * @param mangas the Mangas object to convert
+ * @return the resulting Manga object
+ */
+fun convertMangasToManga(mangas: Mangas): Manga {
+    return Manga(
+        id = mangas._id,
+        source = mangas.source,
+        favorite = mangas.favorite,
+        lastUpdate = mangas.last_update ?: 0L,
+        dateAdded = mangas.date_added,
+        viewerFlags = mangas.viewer,
+        chapterFlags = mangas.chapter_flags,
+        coverLastModified = mangas.cover_last_modified,
+        url = mangas.url,
+        title = mangas.title,
+        artist = mangas.artist,
+        author = mangas.author,
+        description = mangas.description,
+        genre = mangas.genre,
+        status = mangas.status,
+        thumbnailUrl = mangas.thumbnail_url,
+        updateStrategy = mangas.update_strategy,
+        initialized = mangas.initialized,
+    )
 }

@@ -20,7 +20,7 @@ data class SyncStatus(
 data class SyncManga(
     val source: Long? = null,
     val url: String? = null,
-    @SerialName("favorite") val favorite: Boolean? = null,
+    @SerialName("favorite") val favorite: Boolean? = false,
     val title: String? = null,
     val artist: String? = null,
     val author: String? = null,

@@ -12,7 +12,7 @@ import tachiyomi.domain.track.model.Track
 @Serializable
 data class SyncStatus(
     @SerialName("last_synced") val lastSynced: String? = null,
-    val last_synced_epoch: Long? = null,
+    @SerialName("last_synced_epoch") val lastSyncedEpoch: Long? = null,
     val status: String? = null,
 )
 
@@ -20,7 +20,7 @@ data class SyncStatus(
 data class SyncManga(
     val source: Long? = null,
     val url: String? = null,
-    @SerialName("favourite") val favorite: Boolean? = null,
+    @SerialName("favorite") val favorite: Boolean? = null,
     val title: String? = null,
     val artist: String? = null,
     val author: String? = null,

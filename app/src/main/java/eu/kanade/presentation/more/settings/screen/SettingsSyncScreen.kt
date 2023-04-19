@@ -7,12 +7,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.util.collectAsState
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.util.system.toast
@@ -34,6 +36,11 @@ object SettingsSyncScreen : SearchableSettings {
 
         return listOf(
             Preference.PreferenceItem.EditTextPreference(
+                title = stringResource(R.string.pref_sync_device_name),
+                subtitle = stringResource(R.string.pref_sync_device_name_summ),
+                pref = syncPreferences.deviceName(),
+            ),
+            Preference.PreferenceItem.EditTextPreference(
                 title = stringResource(R.string.pref_sync_host),
                 subtitle = stringResource(R.string.pref_sync_host_summ),
                 pref = syncPreferences.syncHost(),
@@ -52,9 +59,10 @@ object SettingsSyncScreen : SearchableSettings {
         val scope = rememberCoroutineScope()
         val showDialog = remember { mutableStateOf(false) }
         val context = LocalContext.current
-        val lastSync = syncPreferences.syncLastSync().get()
+        val lastSync by syncPreferences.syncLastSync().collectAsState()
+        val lastLocalChange by syncPreferences.syncLastLocalUpdate().collectAsState()
         val formattedLastSync = DateUtils.getRelativeTimeSpanString(lastSync.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
-        val formattedLastLocalChange = DateUtils.getRelativeTimeSpanString(syncPreferences.syncLastLocalUpdate().get().toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
+        val formattedLastLocalChange = DateUtils.getRelativeTimeSpanString(lastLocalChange.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
 
         if (showDialog.value) {
             SyncConfirmationDialog(

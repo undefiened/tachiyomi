@@ -84,6 +84,12 @@ CREATE INDEX mangas_url_index ON mangas(url);
 CREATE INDEX chapters_manga_id_index ON chapters(manga_id);
 CREATE INDEX chapters_unread_by_manga_index ON chapters(manga_id, read) WHERE read = 0;
 
+-- Drop temporary tables
+DROP TABLE IF EXISTS mangas_temp;
+DROP TABLE IF EXISTS chapters_temp;
+DROP TABLE IF EXISTS mangas_categories_temp;
+
+
 -- Create triggers
 DROP TRIGGER IF EXISTS update_last_modified_at_mangas;
 CREATE TRIGGER update_last_modified_at_mangas

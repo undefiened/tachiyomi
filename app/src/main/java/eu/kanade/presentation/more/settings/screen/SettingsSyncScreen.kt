@@ -89,7 +89,7 @@ object SettingsSyncScreen : SearchableSettings {
                         showDialog.value = true
                     },
                 ),
-                Preference.PreferenceItem.InfoPreference("Last sync at: $formattedLastSync \nLast local change at: $formattedLastLocalChange"),
+                Preference.PreferenceItem.InfoPreference("Last sync: $formattedLastSync \nLast local change: $formattedLastLocalChange"),
             ),
         )
     }

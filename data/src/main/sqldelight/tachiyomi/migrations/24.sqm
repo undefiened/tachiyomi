@@ -1,11 +1,61 @@
 ALTER TABLE mangas
-ADD COLUMN last_modified_at INTEGER AS Long DEFAULT (strftime('%s', 'now'));
+ADD COLUMN last_modified_at INTEGER AS Long DEFAULT (strftime('%s', 'now') * 1000);
 
-CREATE TRIGGER update_last_modified_at
+ALTER TABLE chapters
+ADD COLUMN last_modified_at INTEGER AS Long DEFAULT (strftime('%s', 'now') * 1000);
+
+ALTER TABLE mangas_categories
+ADD COLUMN last_modified_at INTEGER AS Long DEFAULT (strftime('%s', 'now') * 1000);
+
+-- Mangas table triggers
+DROP TRIGGER IF EXISTS update_last_modified_at_mangas;
+CREATE TRIGGER update_last_modified_at_mangas
 AFTER UPDATE ON mangas
 FOR EACH ROW
 BEGIN
   UPDATE mangas
-  SET last_modified_at = strftime('%s', 'now')
-  WHERE _id = NEW._id;
+  SET last_modified_at = strftime('%s', 'now') * 1000
+  WHERE _id = new._id;
+END;
+
+DROP TRIGGER IF EXISTS insert_last_modified_at_mangas;
+CREATE TRIGGER insert_last_modified_at_mangas
+AFTER INSERT ON mangas
+FOR EACH ROW
+BEGIN
+  UPDATE mangas
+  SET last_modified_at = strftime('%s', 'now') * 1000
+  WHERE _id = new._id;
+END;
+
+-- Chapters table triggers
+DROP TRIGGER IF EXISTS update_last_modified_at_chapters;
+CREATE TRIGGER update_last_modified_at_chapters
+AFTER UPDATE ON chapters
+FOR EACH ROW
+BEGIN
+  UPDATE chapters
+  SET last_modified_at = strftime('%s', 'now') * 1000
+  WHERE _id = new._id;
+END;
+
+-- Mangas_categories table triggers
+DROP TRIGGER IF EXISTS update_last_modified_at_mangas_categories;
+CREATE TRIGGER update_last_modified_at_mangas_categories
+AFTER UPDATE ON mangas_categories
+FOR EACH ROW
+BEGIN
+  UPDATE mangas_categories
+  SET last_modified_at = strftime('%s', 'now') * 1000
+  WHERE _id = new._id;
+END;
+
+DROP TRIGGER IF EXISTS insert_last_modified_at_mangas_categories;
+CREATE TRIGGER insert_last_modified_at_mangas_categories
+AFTER INSERT ON mangas_categories
+FOR EACH ROW
+BEGIN
+  UPDATE mangas_categories
+  SET last_modified_at = strftime('%s', 'now') * 1000
+  WHERE _id = new._id;
 END;

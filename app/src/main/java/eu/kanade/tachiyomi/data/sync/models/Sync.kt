@@ -37,6 +37,7 @@ data class SyncManga(
     val history: List<SyncHistory>? = null,
     val updateStrategy: UpdateStrategy = UpdateStrategy.ALWAYS_UPDATE,
     val initialized: Boolean? = null,
+    val lastModifiedAt: Long? = null,
 ) {
     companion object {
         fun SyncManga.toManga(): Manga {
@@ -59,6 +60,7 @@ data class SyncManga(
                 thumbnailUrl = this.thumbnailUrl,
                 updateStrategy = this.updateStrategy,
                 initialized = this.initialized ?: false,
+                lastModifiedAt = this.lastModifiedAt,
             )
         }
     }
@@ -133,9 +135,10 @@ data class SyncChapter(
     val sourceOrder: Long? = 0,
     val mangaUrl: String? = null,
     val mangaSource: Long? = null,
+    val lastModifiedAt: Long? = null,
 ) {
     companion object {
-        val syncChapterMapper = { id: Long, mangaId: Long, url: String, name: String, scanlator: String?, read: Boolean, bookmark: Boolean, lastPageRead: Long, chapterNumber: Float, source_order: Long, dateFetch: Long, dateUpload: Long ->
+        val syncChapterMapper = { id: Long, mangaId: Long, url: String, name: String, scanlator: String?, read: Boolean, bookmark: Boolean, lastPageRead: Long, chapterNumber: Float, source_order: Long, dateFetch: Long, dateUpload: Long, lastModifiedAt: Long? ->
             SyncChapter(
                 id = id,
                 mangaId = mangaId,
@@ -149,6 +152,7 @@ data class SyncChapter(
                 dateUpload = dateUpload,
                 chapterNumber = chapterNumber.toInt(),
                 sourceOrder = source_order,
+                lastModifiedAt = lastModifiedAt,
             )
         }
     }
@@ -168,6 +172,7 @@ fun syncChapterToChapter(syncChapter: SyncChapter, mangaId: Long): Chapter {
         dateUpload = syncChapter.dateUpload ?: 0L,
         chapterNumber = syncChapter.chapterNumber?.toFloat() ?: 0f,
         scanlator = syncChapter.scanlator,
+        lastModifiedAt = syncChapter.lastModifiedAt,
     )
 }
 

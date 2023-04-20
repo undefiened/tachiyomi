@@ -158,6 +158,7 @@ class SyncManager(
                         dateUpload = chapter.dateUpload,
                         chapterNumber = chapter.chapterNumber,
                         sourceOrder = chapter.sourceOrder,
+                        lastModifiedAt = chapter.lastModifiedAt,
                         mangaUrl = m.url,
                         mangaSource = m.source,
                     )
@@ -167,6 +168,7 @@ class SyncManager(
                 viewer_flags = m.viewerFlags.toInt(),
                 history = history,
                 updateStrategy = m.updateStrategy,
+                lastModifiedAt = m.lastModifiedAt,
             )
 
             if (tracks.isNotEmpty()) {
@@ -912,5 +914,6 @@ fun convertMangasToManga(mangas: Mangas): Manga {
         thumbnailUrl = mangas.thumbnail_url,
         updateStrategy = mangas.update_strategy,
         initialized = mangas.initialized,
+        lastModifiedAt = mangas.last_modified_at,
     )
 }

@@ -21,7 +21,8 @@ CREATE TABLE mangas(
     chapter_flags INTEGER NOT NULL,
     cover_last_modified INTEGER AS Long NOT NULL,
     date_added INTEGER AS Long NOT NULL,
-    update_strategy INTEGER AS UpdateStrategy NOT NULL DEFAULT 0
+    update_strategy INTEGER AS UpdateStrategy NOT NULL DEFAULT 0,
+    last_modified_at INTEGER AS Long
 );
 
 CREATE INDEX library_favorite_index ON mangas(favorite) WHERE favorite = 1;

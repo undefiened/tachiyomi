@@ -912,5 +912,6 @@ fun convertMangasToManga(mangas: Mangas): Manga {
         thumbnailUrl = mangas.thumbnail_url,
         updateStrategy = mangas.update_strategy,
         initialized = mangas.initialized,
+        lastModifiedAt = mangas.last_modified_at,
     )
 }

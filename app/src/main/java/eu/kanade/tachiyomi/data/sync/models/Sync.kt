@@ -37,6 +37,7 @@ data class SyncManga(
     val history: List<SyncHistory>? = null,
     val updateStrategy: UpdateStrategy = UpdateStrategy.ALWAYS_UPDATE,
     val initialized: Boolean? = null,
+    val lastModifiedAt: Long? = null,
 ) {
     companion object {
         fun SyncManga.toManga(): Manga {
@@ -59,6 +60,7 @@ data class SyncManga(
                 thumbnailUrl = this.thumbnailUrl,
                 updateStrategy = this.updateStrategy,
                 initialized = this.initialized ?: false,
+                lastModifiedAt = this.lastModifiedAt,
             )
         }
     }

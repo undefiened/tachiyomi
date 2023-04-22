@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.data.sync
 
 import android.content.Context
+import com.google.gson.Gson
 import eu.kanade.domain.chapter.model.copyFrom
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.models.Data
@@ -71,7 +72,20 @@ class SyncManager(
     private var json: Json = Json {
         ignoreUnknownKeys = true
     },
+    private val gson: Gson = Gson(),
+
 ) {
+
+    enum class SyncService(val value: Int) {
+        NONE(0),
+        GOOGLE_DRIVE(1),
+        SELF_HOSTED(2),
+        ;
+
+        companion object {
+            fun fromInt(value: Int) = values().firstOrNull { it.value == value } ?: NONE
+        }
+    }
 
     /**
      * Syncs data with the remote server.
@@ -81,7 +95,7 @@ class SyncManager(
      * The local data is prepared by calling functions like `mangaList()`,
      * `getExtensionInfo()`, and `getCategories()`.
      * The server URL and API key are read from sync preferences.
-     * The data is sent to the server by calling `sendSyncRequest()`.
+     * The data is sent to the server by calling `syncDataWithServer()`.
      *
      * This function should be called when you want to synchronize local library
      * data with a remote server. It is designed to be used with a coroutine
@@ -96,11 +110,21 @@ class SyncManager(
         val extensionsList = getExtensionInfo(favorites)
         val categoriesList = getCategories()
 
-        val host = syncPreferences.syncHost().get()
-        val apiKey = syncPreferences.syncAPIKey().get()
-        val url = "$host/api/sync/data"
+        when (val syncService = SyncService.fromInt(syncPreferences.syncService().get())) {
+            SyncService.GOOGLE_DRIVE -> {
+                syncDataWithServer(SyncService.GOOGLE_DRIVE, null, null, mangaList, categoriesList, extensionsList)
+            }
+            SyncService.SELF_HOSTED -> {
+                val host = syncPreferences.syncHost().get()
+                val apiKey = syncPreferences.syncAPIKey().get()
+                val url = "$host/api/sync/data"
 
-        sendSyncRequest(url, apiKey, mangaList, categoriesList, extensionsList)
+                syncDataWithServer(SyncService.SELF_HOSTED, url, apiKey, mangaList, categoriesList, extensionsList)
+            }
+            else -> {
+                logcat(LogPriority.ERROR) { "Invalid sync service type: $syncService" }
+            }
+        }
     }
 
     /**
@@ -223,18 +247,19 @@ class SyncManager(
      * using the given input parameters, converts the SData object to a JSON string,
      * and sends the JSON data to the server using the provided URL and API key.
      *
-     * @param url The server URL to send the sync request to.
-     * @param apiKey The API key for authentication.
+     * @param syncService The sync service type (Google Drive or Self-hosted).
+     * @param url The server URL to send the sync request to (only required for Self-hosted sync).
+     * @param apiKey The API key for authentication (only required for Self-hosted sync).
      * @param mangaList A list of SyncManga objects representing the manga data to be synced.
      * @param categories A list of SyncCategory objects representing the categories data to be synced.
      * @param extensions A list of SyncExtension objects representing the extensions data to be synced.
      */
-    private suspend fun sendSyncRequest(url: String, apiKey: String, mangaList: List<SyncManga>, categories: List<SyncCategory>, extensions: List<SyncExtension>) {
+    private suspend fun syncDataWithServer(syncService: SyncService, url: String?, apiKey: String?, mangaList: List<SyncManga>, categories: List<SyncCategory>, extensions: List<SyncExtension>) {
         // Create the SyncStatus object
         val syncStatus = SyncStatus(
             lastSynced = Instant.now().toString(),
             lastSyncedEpoch = syncPreferences.syncLastLocalUpdate().get().toEpochMilli(),
-            status = "pending",
+            status = "completed",
         )
 
         // Create the Data object
@@ -260,103 +285,133 @@ class SyncManager(
         // Convert the SyncData object to a JSON string
         val jsonData = Json.encodeToString(syncData)
 
-//        Log.d("compressed", compressedData.joinToString(" ") { String.format("%02X", it) })
-
-        // Send the JSON data to the server
-        sendSyncData(url, apiKey, jsonData)
+        // Handle sync based on the selected service
+        when (syncService) {
+            SyncService.GOOGLE_DRIVE -> {
+                val googleDriveSync = GoogleDriveSync(context)
+                val syncWithGdrive = googleDriveSync.uploadToGoogleDrive(jsonData)
+                if (syncWithGdrive != null) {
+                    sendSyncData(url = "", apiKey = "", jsonData = syncWithGdrive, storageType = "GoogleDrive")
+                }
+            }
+            SyncService.SELF_HOSTED -> {
+                if (url != null && apiKey != null) {
+                    sendSyncData(url, apiKey, jsonData)
+                }
+            }
+            else -> {
+                logcat(LogPriority.ERROR) { "Invalid sync service type: $syncService" }
+            }
+        }
     }
 
     /**
-     * Sends the sync data to the server as a compressed Gzip.
+     * Sends the sync data to the server as a compressed Gzip or uploads it to Google Drive.
      *
-     * This function prepares an HTTP POST request with the given URL, API key, and JSON data.
-     * The JSON data is sent in the request body, and the API key is added as a header.
-     * After sending the data, the function updates the last sync time preference,
-     * and retrieves the device name and update device ID if is 0 from the preferences.
-     *
+     * This function prepares an HTTP POST request with the given URL, API key, and JSON data for the server
+     * or uploads the JSON data to Google Drive depending on the storageType.
+     * The JSON data is sent in the request body, and the API key is added as a header for server requests.
+     * After sending the data, the function updates the local data if required.
      *
      * @param url The server URL to send the sync data to.
      * @param apiKey The API key for authentication.
      * @param jsonData The JSON string containing the sync data.
+     * @param storageType The storage type to use for sync (e.g., "GoogleDrive"). Defaults to null for server sync.
      */
-    private suspend fun sendSyncData(url: String, apiKey: String, jsonData: String) {
-        val client = OkHttpClient()
-        val mediaType = "application/gzip".toMediaTypeOrNull()
-        val body = jsonData.toRequestBody(mediaType).gzip()
+    private suspend fun sendSyncData(url: String, apiKey: String, jsonData: String, storageType: String? = null) {
+        if (storageType == "GoogleDrive") {
+            val googleDriveSync = GoogleDriveSync(context)
+            val combinedJsonData = googleDriveSync.uploadToGoogleDrive(jsonData)
+            if (combinedJsonData != null) {
+                val updatedSyncData: SData = gson.fromJson(combinedJsonData, SData::class.java)
+                updateLocalData(updatedSyncData)
+            }
+        } else {
+            val client = OkHttpClient()
+            val mediaType = "application/gzip".toMediaTypeOrNull()
+            val body = jsonData.toRequestBody(mediaType).gzip()
 
-        val headers = Headers.Builder()
-            .add("Content-Type", "application/gzip")
-            .add("Content-Encoding", "gzip")
-            .add("X-API-Token", apiKey)
-            .build()
+            val headers = Headers.Builder()
+                .add("Content-Type", "application/gzip")
+                .add("Content-Encoding", "gzip")
+                .add("X-API-Token", apiKey)
+                .build()
 
-        val request = POST(
-            url = url,
-            headers = headers,
-            body = body,
-        )
+            val request = POST(
+                url = url,
+                headers = headers,
+                body = body,
+            )
 
-        client.newCall(request).execute().use { response ->
-            val responseBody = response.body.string()
+            client.newCall(request).execute().use { response ->
+                val responseBody = response.body.string()
 
-            if (response.isSuccessful) {
-                val syncDataResponse: SData = json.decodeFromString(responseBody)
-                logcat(
-                    LogPriority.DEBUG,
-                    null,
-                ) { "Sync response: ${syncDataResponse.update_required}" }
+                if (response.isSuccessful) {
+                    val syncDataResponse: SData = json.decodeFromString(responseBody)
+                    logcat(
+                        LogPriority.DEBUG,
+                        null,
+                    ) { "Sync response: ${syncDataResponse.update_required}" }
 
-                // if local update is required
-                if (syncDataResponse.update_required == true) {
-                    // Restore everything
-                    val mangaList = syncDataResponse.data?.manga ?: emptyList()
-                    val tracking = mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
-                    val history = mangaList.flatMap { it.history ?: emptyList() }.map { SyncHistory(it.url, it.lastRead, it.readDuration) }
-                    val syncCategories = syncDataResponse.data?.categories ?: emptyList()
-                    val chapters = mangaList.flatMap { it.chapters ?: emptyList() }
+                    // If a local update is required
+                    if (syncDataResponse.update_required == true) {
+                        updateLocalData(syncDataResponse)
+                    } else {
+                        syncDataResponse.sync?.lastSyncedEpoch?.let {
+                            Instant.ofEpochMilli(it)
+                        }?.let { syncPreferences.syncLastSync().set(it) }
+                        syncPreferences.syncLastSync().set(Instant.now())
 
-                    // Restore system categories first.
-                    syncDataResponse.data?.categories?.let { restoreSyncCategories(it) }
+                        // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
+                        if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
+                            syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
+                        }
 
-                    // restore manga / everything.
-                    restoreManga(mangaList, history, tracking, syncCategories, chapters)
-
-                    // Trigger a global update after restoring everything: this should fix the UI prev/next chapter buttons.
-                    LibraryUpdateJob.startNow(context)
-
-                    syncPreferences.syncLastSync().set(Instant.now())
-                    // if device id is 0 and not equal to the server device id (this happens when db is fresh and app is not), update it
-                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
-                        syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
+                        SyncNotifier(context).showSyncComplete()
+                        logcat(
+                            LogPriority.INFO,
+                            null,
+                        ) { "Local data is up to date! Not syncing!" }
                     }
                 } else {
-                    // no update is required as local device is up to date
-
-                    // Update the last sync time preference
-                    syncDataResponse.sync?.lastSyncedEpoch?.let {
-                        Instant.ofEpochMilli(
-                            it,
-                        )
-                    }?.let { syncPreferences.syncLastSync().set(it) }
-                    syncPreferences.syncLastSync().set(Instant.now())
-
-                    // if device id is 0 and not equal to the server device id (this happens when db is fresh and app is not), update it
-                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
-                        syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
-                    }
-
-                    // notify user that the sync is up to date.
-                    SyncNotifier(context).showSyncComplete()
-                    logcat(
-                        LogPriority.INFO,
-                        null,
-                    ) { "Local data is up to date! not syncing!" }
+                    SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")
+                    responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
+                    responseBody.let { context.copyToClipboard("sync_error", it) }
                 }
-            } else {
-                SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")
-                responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
-                responseBody.let { context.copyToClipboard("sync_error", it) }
             }
+        }
+    }
+
+    /**
+     * Updates the local data with the provided sync data response.
+     *
+     * This function restores manga and related data (e.g., tracking, history, categories, and chapters)
+     * based on the provided sync data response. It restores system categories first, and then it restores
+     * manga and related data. It also triggers a global update to fix the UI prev/next chapter buttons,
+     * updates the sync last sync time preference, and updates the device ID if necessary.
+     *
+     * @param syncDataResponse The SData object containing the sync data response.
+     */
+    private suspend fun updateLocalData(syncDataResponse: SData) {
+        val mangaList = syncDataResponse.data?.manga ?: emptyList()
+        val tracking = mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
+        val history = mangaList.flatMap { it.history ?: emptyList() }.map { SyncHistory(it.url, it.lastRead, it.readDuration) }
+        val syncCategories = syncDataResponse.data?.categories ?: emptyList()
+        val chapters = mangaList.flatMap { it.chapters ?: emptyList() }
+
+        // Restore system categories first.
+        syncDataResponse.data?.categories?.let { restoreSyncCategories(it) }
+
+        // Restore manga and related data.
+        restoreManga(mangaList, history, tracking, syncCategories, chapters)
+
+        // Trigger a global update after restoring everything: this should fix the UI prev/next chapter buttons.
+        LibraryUpdateJob.startNow(context)
+
+        syncPreferences.syncLastSync().set(Instant.now())
+        // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
+        if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
+            syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
         }
     }
 

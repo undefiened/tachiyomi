@@ -1,6 +1,8 @@
 package eu.kanade.presentation.more.settings.screen
 
 import android.text.format.DateUtils
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -16,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.util.collectAsState
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.sync.GoogleDriveSync
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.launch
@@ -33,7 +36,56 @@ object SettingsSyncScreen : SearchableSettings {
     @Composable
     override fun getPreferences(): List<Preference> {
         val syncPreferences = Injekt.get<SyncPreferences>()
+        val syncService by syncPreferences.syncService().collectAsState()
 
+        return listOf(
+            Preference.PreferenceItem.ListPreference(
+                pref = syncPreferences.syncService(),
+                title = stringResource(R.string.pref_sync_service),
+                entries = mapOf(
+                    0 to stringResource(R.string.off),
+                    1 to stringResource(R.string.google_drive),
+                    2 to stringResource(R.string.self_host),
+                ),
+                onValueChanged = { true },
+            ),
+        ) + getSyncServicePreferences(syncPreferences, syncService)
+    }
+
+    @Composable
+    private fun getSyncServicePreferences(syncPreferences: SyncPreferences, syncService: Int): List<Preference> {
+        return when (syncService) {
+            1 -> getGoogleDrivePreferences(syncPreferences)
+            2 -> getSelfHostPreferences(syncPreferences)
+            else -> emptyList()
+        }
+    }
+
+    @Composable
+    private fun getGoogleDrivePreferences(syncPreferences: SyncPreferences): List<Preference> {
+        val context = LocalContext.current
+        val googleDriveSync = remember { Injekt.get<GoogleDriveSync>() }
+        val signInLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
+            googleDriveSync.handleSignInResult(
+                requestCode = GoogleDriveSync.RC_SIGN_IN,
+                resultCode = result.resultCode,
+                data = result.data,
+                onSuccess = { context.toast(R.string.google_drive_sign_in_success) },
+                onFailure = { message -> context.toast(message + result.resultCode) },
+            )
+        }
+
+        return listOf(
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(R.string.pref_google_drive_sign_in),
+                onClick = { signInLauncher.launch(googleDriveSync.getSignInIntent()) },
+            ),
+            getSyncNowPref(syncPreferences = syncPreferences),
+        )
+    }
+
+    @Composable
+    private fun getSelfHostPreferences(syncPreferences: SyncPreferences): List<Preference> {
         return listOf(
             Preference.PreferenceItem.EditTextPreference(
                 title = stringResource(R.string.pref_sync_device_name),

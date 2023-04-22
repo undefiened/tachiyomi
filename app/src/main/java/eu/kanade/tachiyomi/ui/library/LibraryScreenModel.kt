@@ -59,13 +59,11 @@ import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.manga.model.TriStateFilter
 import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.source.service.SourceManager
-import tachiyomi.domain.sync.SyncPreferences
 import tachiyomi.domain.track.interactor.GetTracksPerManga
 import tachiyomi.source.local.isLocal
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.text.Collator
-import java.time.Instant
 import java.util.Collections
 import java.util.Locale
 
@@ -90,7 +88,6 @@ class LibraryScreenModel(
     private val downloadManager: DownloadManager = Injekt.get(),
     private val downloadCache: DownloadCache = Injekt.get(),
     private val trackManager: TrackManager = Injekt.get(),
-    private val syncPreferences: SyncPreferences = Injekt.get(),
 ) : StateScreenModel<LibraryScreenModel.State>(State()) {
 
     var activeCategoryIndex: Int by libraryPreferences.lastUsedCategory().asState(coroutineScope)
@@ -462,8 +459,6 @@ class LibraryScreenModel(
                     read = read,
                 )
             }
-            // Update last local changes time to prevent conflicts for syncing
-            syncPreferences.syncLastLocalUpdate().set(Instant.now())
         }
         clearSelection()
     }
@@ -488,8 +483,6 @@ class LibraryScreenModel(
                     )
                 }
                 updateManga.awaitAll(toDelete)
-                // Update last local changes time to prevent conflicts for syncing
-                syncPreferences.syncLastLocalUpdate().set(Instant.now())
             }
 
             if (deleteChapters) {
@@ -521,8 +514,6 @@ class LibraryScreenModel(
 
                 setMangaCategories.await(manga.id, categoryIds)
             }
-            // Update last local changes time to prevent conflicts for syncing
-            syncPreferences.syncLastLocalUpdate().set(Instant.now())
         }
     }
 

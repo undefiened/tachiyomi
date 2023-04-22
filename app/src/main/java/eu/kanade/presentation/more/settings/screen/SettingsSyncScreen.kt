@@ -112,9 +112,7 @@ object SettingsSyncScreen : SearchableSettings {
         val showDialog = remember { mutableStateOf(false) }
         val context = LocalContext.current
         val lastSync by syncPreferences.syncLastSync().collectAsState()
-        val lastLocalChange by syncPreferences.syncLastLocalUpdate().collectAsState()
         val formattedLastSync = DateUtils.getRelativeTimeSpanString(lastSync.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
-        val formattedLastLocalChange = DateUtils.getRelativeTimeSpanString(lastLocalChange.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
 
         if (showDialog.value) {
             SyncConfirmationDialog(
@@ -141,7 +139,7 @@ object SettingsSyncScreen : SearchableSettings {
                         showDialog.value = true
                     },
                 ),
-                Preference.PreferenceItem.InfoPreference("Last sync: $formattedLastSync \nLast local change: $formattedLastLocalChange"),
+                Preference.PreferenceItem.InfoPreference("Last sync: $formattedLastSync"),
             ),
         )
     }

@@ -69,14 +69,12 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.TriStateFilter
 import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.source.service.SourceManager
-import tachiyomi.domain.sync.SyncPreferences
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.source.local.isLocal
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
-import java.time.Instant
 
 class MangaInfoScreenModel(
     val context: Context,
@@ -100,7 +98,6 @@ class MangaInfoScreenModel(
     private val getCategories: GetCategories = Injekt.get(),
     private val getTracks: GetTracks = Injekt.get(),
     private val setMangaCategories: SetMangaCategories = Injekt.get(),
-    private val syncPreferences: SyncPreferences = Injekt.get(),
     val snackbarHostState: SnackbarHostState = SnackbarHostState(),
 ) : StateScreenModel<MangaScreenState>(MangaScreenState.Loading) {
 
@@ -268,8 +265,6 @@ class MangaInfoScreenModel(
                     if (manga.removeCovers() != manga) {
                         updateManga.awaitUpdateCoverLastModified(manga.id)
                     }
-                    // Update last local changes time to prevent conflicts for syncing
-                    syncPreferences.syncLastLocalUpdate().set(Instant.now())
 
                     withUIContext { onRemoved() }
                 }
@@ -332,8 +327,6 @@ class MangaInfoScreenModel(
                             }
                         }
                     }
-                // Update last local changes time to prevent conflicts for syncing
-                syncPreferences.syncLastLocalUpdate().set(Instant.now())
             }
         }
     }

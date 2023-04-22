@@ -41,12 +41,10 @@ import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.source.service.SourceManager
-import tachiyomi.domain.sync.SyncPreferences
 import tachiyomi.domain.updates.interactor.GetUpdates
 import tachiyomi.domain.updates.model.UpdatesWithRelations
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.time.Instant
 import java.util.Calendar
 import java.util.Date
 
@@ -60,7 +58,6 @@ class UpdatesScreenModel(
     private val getManga: GetManga = Injekt.get(),
     private val getChapter: GetChapter = Injekt.get(),
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
-    private val syncPreferences: SyncPreferences = Injekt.get(),
     val snackbarHostState: SnackbarHostState = SnackbarHostState(),
     uiPreferences: UiPreferences = Injekt.get(),
 ) : StateScreenModel<UpdatesState>(UpdatesState()) {
@@ -212,8 +209,6 @@ class UpdatesScreenModel(
                     .mapNotNull { getChapter.await(it.update.chapterId) }
                     .toTypedArray(),
             )
-            // Update last local changes time to prevent conflicts.
-            syncPreferences.syncLastLocalUpdate().set(Instant.now())
         }
         toggleAllSelection(false)
     }

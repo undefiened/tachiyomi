@@ -8,7 +8,6 @@ class SyncPreferences(
 ) {
     fun syncHost() = preferenceStore.getString("sync_host", "https://sync.tachiyomi.org")
     fun syncAPIKey() = preferenceStore.getString("sync_api_key", "")
-    fun syncLastLocalUpdate() = preferenceStore.getInstant("sync_last_local_update", Instant.EPOCH)
     fun syncLastSync() = preferenceStore.getInstant("sync_last_sync", Instant.EPOCH)
 
     fun syncInterval() = preferenceStore.getInt("sync_interval", 0)

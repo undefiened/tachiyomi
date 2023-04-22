@@ -242,5 +242,4 @@ data class SData(
     val sync: SyncStatus? = null,
     val data: Data? = null,
     val device: SyncDevice? = null,
-    @SerialName("update_required") val update_required: Boolean? = null,
 )

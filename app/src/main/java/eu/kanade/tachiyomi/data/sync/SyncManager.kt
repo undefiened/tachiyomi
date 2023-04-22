@@ -258,7 +258,6 @@ class SyncManager(
         // Create the SyncStatus object
         val syncStatus = SyncStatus(
             lastSynced = Instant.now().toString(),
-            lastSyncedEpoch = syncPreferences.syncLastLocalUpdate().get().toEpochMilli(),
             status = "completed",
         )
 
@@ -348,31 +347,23 @@ class SyncManager(
 
                 if (response.isSuccessful) {
                     val syncDataResponse: SData = json.decodeFromString(responseBody)
-                    logcat(
-                        LogPriority.DEBUG,
-                        null,
-                    ) { "Sync response: ${syncDataResponse.update_required}" }
 
-                    // If a local update is required
-                    if (syncDataResponse.update_required == true) {
-                        updateLocalData(syncDataResponse)
-                    } else {
-                        syncDataResponse.sync?.lastSyncedEpoch?.let {
-                            Instant.ofEpochMilli(it)
-                        }?.let { syncPreferences.syncLastSync().set(it) }
-                        syncPreferences.syncLastSync().set(Instant.now())
+                    updateLocalData(syncDataResponse)
+                    syncDataResponse.sync?.lastSyncedEpoch?.let {
+                        Instant.ofEpochMilli(it)
+                    }?.let { syncPreferences.syncLastSync().set(it) }
+                    syncPreferences.syncLastSync().set(Instant.now())
 
-                        // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
-                        if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
-                            syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
-                        }
-
-                        SyncNotifier(context).showSyncComplete()
-                        logcat(
-                            LogPriority.INFO,
-                            null,
-                        ) { "Local data is up to date! Not syncing!" }
+                    // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
+                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
+                        syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
                     }
+
+                    SyncNotifier(context).showSyncComplete()
+                    logcat(
+                        LogPriority.INFO,
+                        null,
+                    ) { "Local data is up to date! Not syncing!" }
                 } else {
                     SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")
                     responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }

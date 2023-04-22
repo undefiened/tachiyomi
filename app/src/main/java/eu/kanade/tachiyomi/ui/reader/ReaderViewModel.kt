@@ -75,13 +75,11 @@ import tachiyomi.domain.history.model.HistoryUpdate
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
-import tachiyomi.domain.sync.SyncPreferences
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.domain.track.interactor.InsertTrack
 import tachiyomi.source.local.isLocal
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.time.Instant
 import java.util.Date
 
 /**
@@ -106,7 +104,6 @@ class ReaderViewModel(
     private val upsertHistory: UpsertHistory = Injekt.get(),
     private val updateChapter: UpdateChapter = Injekt.get(),
     private val setMangaViewerFlags: SetMangaViewerFlags = Injekt.get(),
-    private val syncPreferences: SyncPreferences = Injekt.get(),
 ) : ViewModel() {
 
     private val mutableState = MutableStateFlow(State())
@@ -420,8 +417,6 @@ class ReaderViewModel(
         val shouldTrack = !incognitoMode || hasTrackers
         if (selectedChapter.pages?.lastIndex == page.index && shouldTrack) {
             selectedChapter.chapter.read = true
-            // Update last local changes time to prevent conflicts for syncing
-            syncPreferences.syncLastLocalUpdate().set(Instant.now())
             updateTrackChapterRead(selectedChapter)
             deleteChapterIfNeeded(selectedChapter)
         }

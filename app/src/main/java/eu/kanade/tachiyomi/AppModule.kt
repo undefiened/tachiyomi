@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.saver.ImageSaver
+import eu.kanade.tachiyomi.data.sync.GoogleDriveSync
 import eu.kanade.tachiyomi.data.track.TrackManager
 import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.network.JavaScriptEngine
@@ -150,6 +151,8 @@ class AppModule(val app: Application) : InjektModule {
 
             get<DownloadManager>()
         }
+
+        addSingletonFactory { GoogleDriveSync(app) }
     }
 }
 

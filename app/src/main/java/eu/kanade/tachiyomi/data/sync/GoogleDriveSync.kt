@@ -1,15 +1,17 @@
 package eu.kanade.tachiyomi.data.sync
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.Scope
-import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
+import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets
+import com.google.api.client.googleapis.auth.oauth2.GoogleCredential
+import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse
 import com.google.api.client.http.ByteArrayContent
 import com.google.api.client.http.javanet.NetHttpTransport
+import com.google.api.client.json.JsonFactory
 import com.google.api.client.json.jackson2.JacksonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
@@ -27,108 +29,147 @@ import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.ByteArrayOutputStream
+import java.io.InputStreamReader
 
 class GoogleDriveSync(private val context: Context) {
     private val syncPreferences = Injekt.get<SyncPreferences>()
     private val gson = Gson()
 
-    /**
-     * Initializes the GoogleDriveSync class by checking for a saved account and setting up the Google Drive service if one exists.
-     */
-    init {
-        val savedAccount = getSavedAccount()
-        if (savedAccount != null) {
-            setupGoogleDriveService(savedAccount)
-        }
-    }
-
-    private val googleSignInOptions: GoogleSignInOptions =
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(DriveScopes.DRIVE_FILE))
-            .build()
-
-    private val googleSignInClient: GoogleSignInClient =
-        GoogleSignIn.getClient(context, googleSignInOptions)
-
     private var googleDriveService: Drive? = null
 
-    /**
-     * Returns a GoogleSignIn intent to start the sign-in process.
-     *
-     * @return An Intent to start the Google sign-in process.
-     */
-    fun getSignInIntent(): Intent {
-        return googleSignInClient.signInIntent
+    init {
+        initGoogleDriveService()
     }
 
     /**
-     * Handles the result of the Google sign-in process by setting up the Google Drive service and saving the account information upon successful sign-in.
-     *
-     * @param requestCode The request code used to start the sign-in process.
-     * @param resultCode The result code returned by the sign-in process.
-     * @param data The intent containing the result data.
-     * @param onSuccess A callback function to be called upon successful sign-in.
-     * @param onFailure A callback function to be called upon sign-in failure, passing an error message as a parameter.
+     * Initializes the Google Drive service by obtaining the access token and refresh token from the SyncPreferences
+     * and setting up the service using the obtained tokens.
      */
-    fun handleSignInResult(requestCode: Int, resultCode: Int, data: Intent?, onSuccess: () -> Unit, onFailure: (String) -> Unit) {
-        if (requestCode == RC_SIGN_IN) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                saveAccountInfo(account)
-                setupGoogleDriveService(account)
-                onSuccess()
-            } catch (e: ApiException) {
-                onFailure(e.localizedMessage ?: "Unknown error")
-            }
-        }
+    private fun initGoogleDriveService() {
+        val accessToken = syncPreferences.getGoogleDriveAccessToken()
+        val refreshToken = syncPreferences.getGoogleDriveRefreshToken()
+
+        setupGoogleDriveService(accessToken, refreshToken)
     }
 
     /**
-     * Sets up the Google Drive service using the provided GoogleSignInAccount.
-     *
-     * @param account The GoogleSignInAccount used to authenticate the Google Drive service.
+     * Generates the authorization URL required for the user to grant the application permission to access their Google Drive account.
+     * @return The authorization URL.
      */
-    private fun setupGoogleDriveService(account: GoogleSignInAccount) {
-        val credential = GoogleAccountCredential.usingOAuth2(
-            context,
+    private fun generateAuthorizationUrl(): String {
+        val jsonFactory: JsonFactory = JacksonFactory.getDefaultInstance()
+        val secrets = GoogleClientSecrets.load(
+            jsonFactory,
+            InputStreamReader(context.assets.open("client_secrets.json")),
+        )
+
+        val flow = GoogleAuthorizationCodeFlow.Builder(
+            NetHttpTransport(),
+            jsonFactory,
+            secrets,
             listOf(DriveScopes.DRIVE_FILE),
-        ).setSelectedAccount(account.account)
+        ).build()
+
+        return flow.newAuthorizationUrl()
+            .setRedirectUri("http://127.0.0.1:8000/auth")
+            .build()
+    }
+
+    /**
+     * Launches a Custom Tab with the authorization URL to allow the user to sign in and grant the application permission to access their Google Drive account.
+     * Also returns an OAuthCallbackServer to listen for the authorization code.
+     * @param onCallback A callback function to listen for the authorization code.
+     * @return An OAuthCallbackServer.
+     */
+    fun getSignInIntent(onCallback: (String) -> Unit): OAuthCallbackServer {
+        val oAuthCallbackServer = Injekt.get<OAuthCallbackServer>().apply {
+            setOnCallbackListener(onCallback)
+        }
+
+        val authorizationUrl = generateAuthorizationUrl()
+        val customTabsIntent = CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .build()
+
+        customTabsIntent.intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        customTabsIntent.launchUrl(context, Uri.parse(authorizationUrl))
+
+        return oAuthCallbackServer
+    }
+
+    /**
+     * Sets up the Google Drive service using the provided access token and refresh token.
+     * @param accessToken The access token obtained from the SyncPreferences.
+     * @param refreshToken The refresh token obtained from the SyncPreferences.
+     */
+    private fun setupGoogleDriveService(accessToken: String, refreshToken: String) {
+        val jsonFactory: JsonFactory = JacksonFactory.getDefaultInstance()
+        val secrets = GoogleClientSecrets.load(
+            jsonFactory,
+            InputStreamReader(context.assets.open("client_secrets.json")),
+        )
+
+        val credential = GoogleCredential.Builder()
+            .setJsonFactory(jsonFactory)
+            .setTransport(NetHttpTransport())
+            .setClientSecrets(secrets)
+            .build()
+
+        credential.accessToken = accessToken
+        credential.refreshToken = refreshToken
+
         googleDriveService = Drive.Builder(
             NetHttpTransport(),
-            JacksonFactory(),
+            jsonFactory,
             credential,
         ).setApplicationName("Tachiyomi")
             .build()
     }
 
-    companion object {
-        const val RC_SIGN_IN = 1001
-    }
-
     /**
-     * Saves the account information as a JSON string in the sync preferences.
-     *
-     * @param account The GoogleSignInAccount to be saved.
+     * Handles the authorization code returned after the user has granted the application permission to access their Google Drive account.
+     * It obtains the access token and refresh token using the authorization code, saves the tokens to the SyncPreferences,
+     * sets up the Google Drive service using the obtained tokens, and initializes the service.
+     * @param authorizationCode The authorization code obtained from the OAuthCallbackServer.
+     * @param activity The current activity.
+     * @param onSuccess A callback function to be called on successful authorization.
+     * @param onFailure A callback function to be called on authorization failure.
      */
-    private fun saveAccountInfo(account: GoogleSignInAccount) {
-        val accountJson = gson.toJson(account)
-        syncPreferences.setGoogleAccountJson(accountJson)
-    }
+    fun handleAuthorizationCode(authorizationCode: String, activity: Activity, onSuccess: () -> Unit, onFailure: (String) -> Unit) {
+        val jsonFactory: JsonFactory = JacksonFactory.getDefaultInstance()
+        val secrets = GoogleClientSecrets.load(
+            jsonFactory,
+            InputStreamReader(context.assets.open("client_secrets.json")),
+        )
 
-    /**
-     * Retrieves the saved GoogleSignInAccount from sync preferences if it exists.
-     *
-     * @return The saved GoogleSignInAccount, or null if no account is saved.
-     */
-    private fun getSavedAccount(): GoogleSignInAccount? {
-        val accountJson = syncPreferences.googleAccountJson().get()
+        val tokenResponse: GoogleTokenResponse = GoogleAuthorizationCodeTokenRequest(
+            NetHttpTransport(),
+            jsonFactory,
+            secrets.web.clientId,
+            secrets.web.clientSecret,
+            authorizationCode,
+            "http://127.0.0.1:8000/auth",
+        ).execute()
 
-        return if (accountJson.isNotEmpty()) {
-            gson.fromJson(accountJson, GoogleSignInAccount::class.java)
-        } else {
-            null
+        try {
+            // Save the access token and refresh token
+            val accessToken = tokenResponse.accessToken
+            val refreshToken = tokenResponse.refreshToken
+
+            // Save the tokens to SyncPreferences
+            syncPreferences.setGoogleDriveAccessToken(accessToken)
+            syncPreferences.setGoogleDriveRefreshToken(refreshToken)
+
+            setupGoogleDriveService(accessToken, refreshToken)
+            initGoogleDriveService()
+
+            activity.runOnUiThread {
+                onSuccess()
+            }
+        } catch (e: Exception) {
+            activity.runOnUiThread {
+                onFailure(e.localizedMessage ?: "Unknown error")
+            }
         }
     }
 
@@ -142,6 +183,7 @@ class GoogleDriveSync(private val context: Context) {
         val drive = googleDriveService
 
         if (drive == null) {
+            SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")
             logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
             return ""
         }

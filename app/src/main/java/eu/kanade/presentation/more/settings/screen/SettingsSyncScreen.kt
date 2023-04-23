@@ -1,8 +1,7 @@
 package eu.kanade.presentation.more.settings.screen
 
+import android.app.Activity
 import android.text.format.DateUtils
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -19,6 +18,7 @@ import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.util.collectAsState
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.sync.GoogleDriveSync
+import eu.kanade.tachiyomi.data.sync.OAuthCallbackServer
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.launch
@@ -65,20 +65,28 @@ object SettingsSyncScreen : SearchableSettings {
     private fun getGoogleDrivePreferences(syncPreferences: SyncPreferences): List<Preference> {
         val context = LocalContext.current
         val googleDriveSync = remember { Injekt.get<GoogleDriveSync>() }
-        val signInLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
-            googleDriveSync.handleSignInResult(
-                requestCode = GoogleDriveSync.RC_SIGN_IN,
-                resultCode = result.resultCode,
-                data = result.data,
-                onSuccess = { context.toast(R.string.google_drive_sign_in_success) },
-                onFailure = { message -> context.toast(message + result.resultCode) },
-            )
-        }
+        val oAuthCBServer = Injekt.get<OAuthCallbackServer>()
 
         return listOf(
             Preference.PreferenceItem.TextPreference(
                 title = stringResource(R.string.pref_google_drive_sign_in),
-                onClick = { signInLauncher.launch(googleDriveSync.getSignInIntent()) },
+                onClick = {
+                    val oAuthCallbackServer = googleDriveSync.getSignInIntent { authorizationCode ->
+                        googleDriveSync.handleAuthorizationCode(
+                            authorizationCode,
+                            context as Activity,
+                            onSuccess = {
+                                context.toast(R.string.google_drive_sign_in_success)
+                                oAuthCBServer.stop()
+                            },
+                            onFailure = { message ->
+                                context.toast(message)
+                                oAuthCBServer.stop()
+                            },
+                        )
+                    }
+                    oAuthCallbackServer.start()
+                },
             ),
             getSyncNowPref(syncPreferences = syncPreferences),
         )

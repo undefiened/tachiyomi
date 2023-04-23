@@ -257,7 +257,6 @@ dependencies {
     // debugImplementation(libs.leakcanary.android)
     implementation(libs.leakcanary.plumber)
 
-    implementation(libs.google.play.services.auth)
     implementation(libs.google.api.client.android)
     implementation(libs.google.api.services.drive)
     implementation(libs.gson)

@@ -9,6 +9,24 @@ CREATE TABLE mangas_categories(
     ON DELETE CASCADE
 );
 
+CREATE TRIGGER update_last_modified_at_mangas_categories
+AFTER UPDATE ON mangas_categories
+FOR EACH ROW
+BEGIN
+  UPDATE mangas_categories
+  SET last_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER insert_last_modified_at_mangas_categories
+AFTER INSERT ON mangas_categories
+FOR EACH ROW
+BEGIN
+  UPDATE mangas_categories
+  SET last_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
 insert:
 INSERT INTO mangas_categories(manga_id, category_id)
 VALUES (:mangaId, :categoryId);

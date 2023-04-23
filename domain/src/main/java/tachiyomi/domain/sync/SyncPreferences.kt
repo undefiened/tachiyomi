@@ -18,13 +18,19 @@ class SyncPreferences(
 
     fun syncService() = preferenceStore.getInt("sync_service", 0)
 
-    fun googleAccountJson() = preferenceStore.getString("google_account_json", "")
+    private fun googleDriveAccessToken() = preferenceStore.getString("google_drive_access_token", "")
 
-    fun setGoogleAccountJson(accountJson: String) {
-        googleAccountJson().set(accountJson)
+    fun setGoogleDriveAccessToken(accessToken: String) {
+        googleDriveAccessToken().set(accessToken)
     }
 
-    fun clearGoogleAccountJson() {
-        googleAccountJson().delete()
+    fun getGoogleDriveAccessToken() = googleDriveAccessToken().get()
+
+    private fun googleDriveRefreshToken() = preferenceStore.getString("google_drive_refresh_token", "")
+
+    fun setGoogleDriveRefreshToken(refreshToken: String) {
+        googleDriveRefreshToken().set(refreshToken)
     }
+
+    fun getGoogleDriveRefreshToken() = googleDriveRefreshToken().get()
 }

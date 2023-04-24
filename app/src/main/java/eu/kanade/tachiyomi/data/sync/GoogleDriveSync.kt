@@ -20,16 +20,19 @@ import com.google.gson.Gson
 import eu.kanade.tachiyomi.data.sync.models.Data
 import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncCategory
+import eu.kanade.tachiyomi.data.sync.models.SyncChapter
 import eu.kanade.tachiyomi.data.sync.models.SyncManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.util.system.logcat
+import tachiyomi.data.DatabaseHandler
 import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
+import java.time.Instant
 
 class GoogleDriveSync(private val context: Context) {
     private val syncPreferences = Injekt.get<SyncPreferences>()
@@ -286,6 +289,7 @@ class GoogleDriveSync(private val context: Context) {
 
     /**
      * Merges two lists of SyncManga objects, prioritizing the manga with the most recent lastModifiedAt value.
+     * If lastModifiedAt is null, the function defaults to Instant.MIN for comparison purposes.
      *
      * @param localMangaList The list of local SyncManga objects.
      * @param remoteMangaList The list of remote SyncManga objects.
@@ -303,27 +307,77 @@ class GoogleDriveSync(private val context: Context) {
         localMangaMap.forEach { (key, localManga) ->
             val remoteManga = remoteMangaMap[key]
             if (remoteManga != null) {
-                // Compare and merge local and remote manga
-                val mergedManga = if (localManga.lastModifiedAt!! >= remoteManga.lastModifiedAt!!) {
+                val localInstant = localManga.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
+                val remoteInstant = remoteManga.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
+
+                val mergedManga = if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
                     localManga
                 } else {
                     remoteManga
                 }
-                mergedMangaMap[key] = mergedManga
+
+                val localChapters = localManga.chapters ?: emptyList()
+                val remoteChapters = remoteManga.chapters ?: emptyList()
+                val mergedChapters = mergeChapters(localChapters, remoteChapters)
+
+                val isFavorite = localManga.favorite == true && remoteManga.favorite == true
+                mergedMangaMap[key] = mergedManga.copy(chapters = mergedChapters, favorite = isFavorite)
             } else {
-                // If the manga is only in the local list, add it to the merged list
-                mergedMangaMap[key] = localManga
+                mergedMangaMap[key] = localManga.copy(favorite = false)
             }
         }
 
-        // Add any manga from the remote list that are not in the local list
         remoteMangaMap.forEach { (key, remoteManga) ->
             if (!mergedMangaMap.containsKey(key)) {
-                mergedMangaMap[key] = remoteManga
+                mergedMangaMap[key] = remoteManga.copy(favorite = false)
             }
         }
 
         return mergedMangaMap.values.toList()
+    }
+
+    /**
+     * Merges two lists of SyncChapter objects, prioritizing the chapter with the most recent lastModifiedAt value.
+     * If lastModifiedAt is null, the function defaults to Instant.MIN for comparison purposes.
+     *
+     * @param localChapters The list of local SyncChapter objects.
+     * @param remoteChapters The list of remote SyncChapter objects.
+     * @return The merged list of SyncChapter objects.
+     */
+    private fun mergeChapters(localChapters: List<SyncChapter>, remoteChapters: List<SyncChapter>): List<SyncChapter> {
+        val localChapterMap = localChapters.associateBy { it.url }
+        val remoteChapterMap = remoteChapters.associateBy { it.url }
+
+        val mergedChapterMap = mutableMapOf<String?, SyncChapter>()
+
+        localChapterMap.forEach { (url, localChapter) ->
+            val remoteChapter = remoteChapterMap[url]
+            if (remoteChapter != null) {
+                val localInstant = localChapter.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
+                val remoteInstant = remoteChapter.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
+
+                val mergedChapter = if ((localInstant ?: Instant.MIN) >= (
+                    remoteInstant
+                        ?: Instant.MIN
+                    )
+                ) {
+                    localChapter
+                } else {
+                    remoteChapter
+                }
+                mergedChapterMap[url] = mergedChapter
+            } else {
+                mergedChapterMap[url] = localChapter
+            }
+        }
+
+        remoteChapterMap.forEach { (url, remoteChapter) ->
+            if (!mergedChapterMap.containsKey(url)) {
+                mergedChapterMap[url] = remoteChapter
+            }
+        }
+
+        return mergedChapterMap.values.toList()
     }
 
     /**

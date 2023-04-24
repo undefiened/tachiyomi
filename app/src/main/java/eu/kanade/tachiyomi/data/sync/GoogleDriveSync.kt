@@ -26,7 +26,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.util.system.logcat
-import tachiyomi.data.DatabaseHandler
 import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -320,16 +319,16 @@ class GoogleDriveSync(private val context: Context) {
                 val remoteChapters = remoteManga.chapters ?: emptyList()
                 val mergedChapters = mergeChapters(localChapters, remoteChapters)
 
-                val isFavorite = localManga.favorite == true && remoteManga.favorite == true
+                val isFavorite = localManga.favorite == true || remoteManga.favorite == true
                 mergedMangaMap[key] = mergedManga.copy(chapters = mergedChapters, favorite = isFavorite)
             } else {
-                mergedMangaMap[key] = localManga.copy(favorite = false)
+                mergedMangaMap[key] = localManga
             }
         }
 
         remoteMangaMap.forEach { (key, remoteManga) ->
             if (!mergedMangaMap.containsKey(key)) {
-                mergedMangaMap[key] = remoteManga.copy(favorite = false)
+                mergedMangaMap[key] = remoteManga
             }
         }
 

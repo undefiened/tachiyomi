@@ -60,25 +60,30 @@ class OAuthCallbackServer {
             val output = BufferedWriter(OutputStreamWriter(socket?.getOutputStream()))
 
             val requestLine = input.readLine()
-            val requestUri = requestLine.split(" ")[1]
-            val uri = Uri.parse(requestUri)
 
-            if (uri.path == "/auth") {
-                val authorizationCode = uri.getQueryParameter("code")
-                if (authorizationCode != null) {
-                    onCallback(authorizationCode)
-                } else {
-                    logcat(LogPriority.ERROR) { "Google Authorization code is null" }
-                    stopServer()
+            if (requestLine != null) {
+                val requestUri = requestLine.split(" ")[1]
+                val uri = Uri.parse(requestUri)
+
+                if (uri.path == "/auth") {
+                    val authorizationCode = uri.getQueryParameter("code")
+                    if (authorizationCode != null) {
+                        onCallback(authorizationCode)
+                    } else {
+                        logcat(LogPriority.ERROR) { "Google Authorization code is null" }
+                        stopServer()
+                    }
+
+                    // Send a response to the browser
+                    output.write("HTTP/1.1 200 OK\r\n")
+                    output.write("Content-Type: text/html; charset=UTF-8\r\n")
+                    output.write("Connection: close\r\n")
+                    output.write("\r\n")
+                    output.write("<html><body><h1>Authorization successful. You can close this window now.</h1></body></html>")
+                    output.flush()
                 }
-
-                // Send a response to the browser
-                output.write("HTTP/1.1 200 OK\r\n")
-                output.write("Content-Type: text/html; charset=UTF-8\r\n")
-                output.write("Connection: close\r\n")
-                output.write("\r\n")
-                output.write("<html><body><h1>Authorization successful. You can close this window now.</h1></body></html>")
-                output.flush()
+            } else {
+                logcat(LogPriority.ERROR) { "Request line is null" }
             }
 
             socket?.close()

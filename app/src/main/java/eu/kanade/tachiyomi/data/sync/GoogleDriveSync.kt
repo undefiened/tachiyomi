@@ -177,6 +177,31 @@ class GoogleDriveSync(private val context: Context) {
         }
     }
 
+    suspend fun deleteSyncDataFromGoogleDrive(): Boolean {
+        val fileName = "tachiyomi_sync_data.json"
+        val drive = googleDriveService
+
+        if (drive == null) {
+            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
+            return false
+        }
+
+        return withContext(Dispatchers.IO) {
+            val query = "mimeType='text/plain' and trashed = false and name = '$fileName'"
+            val fileList = drive.files().list().setQ(query).execute().files
+
+            if (fileList.isNullOrEmpty()) {
+                logcat(LogPriority.DEBUG) { "No sync data file found in Google Drive" }
+                false
+            } else {
+                val fileId = fileList[0].id
+                drive.files().delete(fileId).execute()
+                logcat(LogPriority.DEBUG) { "Deleted sync data file in Google Drive with file ID: $fileId" }
+                true
+            }
+        }
+    }
+
     /**
      * Downloads a file from Google Drive given its file ID.
      *

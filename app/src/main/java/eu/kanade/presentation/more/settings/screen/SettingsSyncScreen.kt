@@ -88,6 +88,7 @@ object SettingsSyncScreen : SearchableSettings {
                     oAuthCallbackServer.start()
                 },
             ),
+            getGoogleDrivePurge(),
             getSyncNowPref(syncPreferences = syncPreferences),
         )
     }
@@ -111,6 +112,36 @@ object SettingsSyncScreen : SearchableSettings {
                 pref = syncPreferences.syncAPIKey(),
             ),
             getSyncNowPref(syncPreferences = syncPreferences),
+        )
+    }
+
+    @Composable
+    private fun getGoogleDrivePurge(): Preference.PreferenceItem.TextPreference {
+        val scope = rememberCoroutineScope()
+        val showPurgeDialog = remember { mutableStateOf(false) }
+        val context = LocalContext.current
+        val googleDriveSync = remember { Injekt.get<GoogleDriveSync>() }
+
+        if (showPurgeDialog.value) {
+            PurgeConfirmationDialog(
+                onConfirm = {
+                    showPurgeDialog.value = false
+                    scope.launch {
+                        val result = googleDriveSync.deleteSyncDataFromGoogleDrive()
+                        if (result) {
+                            context.toast(R.string.google_drive_sync_data_purged)
+                        } else {
+                            context.toast(R.string.google_drive_sync_data_not_found)
+                        }
+                    }
+                },
+                onDismissRequest = { showPurgeDialog.value = false },
+            )
+        }
+
+        return Preference.PreferenceItem.TextPreference(
+            title = stringResource(R.string.pref_google_drive_purge_sync_data),
+            onClick = { showPurgeDialog.value = true },
         )
     }
 
@@ -173,4 +204,26 @@ object SettingsSyncScreen : SearchableSettings {
             },
         )
     }
+}
+
+@Composable
+fun PurgeConfirmationDialog(
+    onConfirm: () -> Unit,
+    onDismissRequest: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(text = stringResource(R.string.pref_purge_confirmation_title)) },
+        text = { Text(text = stringResource(R.string.pref_purge_confirmation_message)) },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(text = stringResource(R.string.action_cancel))
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = stringResource(android.R.string.ok))
+            }
+        },
+    )
 }

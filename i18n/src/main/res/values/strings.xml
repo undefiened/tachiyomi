@@ -522,9 +522,16 @@
     <string name="google_drive_sign_in_success">Signed in successfully</string>
     <string name="google_drive_sign_in_failed">Sign in failed</string>
     <string name="authentication">Authentication</string>
+    <string name="pref_google_drive_purge_sync_data">Purge sync data from Google Drive</string>
+    <string name="google_drive_sync_data_purged">Sync data purged from Google Drive</string>
+    <string name="google_drive_sync_data_not_found">No sync data found in Google Drive</string>
+    <string name="pref_purge_confirmation_title">Purge confirmation</string>
+<string name="pref_purge_confirmation_message">Purging sync data will delete all your sync data from Google Drive. Are you sure you want to continue?</string>
 
 
-      <!-- Advanced section -->
+
+
+    <!-- Advanced section -->
     <string name="label_network">Network</string>
     <string name="pref_clear_cookies">Clear cookies</string>
     <string name="pref_dns_over_https">DNS over HTTPS (DoH)</string>

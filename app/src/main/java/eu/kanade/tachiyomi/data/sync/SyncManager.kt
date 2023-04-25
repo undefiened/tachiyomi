@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.data.sync
 import android.content.Context
 import com.google.gson.Gson
 import eu.kanade.domain.chapter.model.copyFrom
-import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.models.Data
 import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncCategory
@@ -75,6 +74,9 @@ class SyncManager(
     private val gson: Gson = Gson(),
 
 ) {
+    private val notifier: SyncNotifier = SyncNotifier(context)
+    private var restoreAmount = 0
+    private var restoreProgress = 0
 
     enum class SyncService(val value: Int) {
         NONE(0),
@@ -359,13 +361,12 @@ class SyncManager(
                         syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
                     }
 
-                    SyncNotifier(context).showSyncComplete()
                     logcat(
                         LogPriority.INFO,
                         null,
                     ) { "Local data is up to date! Not syncing!" }
                 } else {
-                    SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")
+                    notifier.showSyncError("Failed to sync: error copied to clipboard")
                     responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
                     responseBody.let { context.copyToClipboard("sync_error", it) }
                 }
@@ -384,26 +385,26 @@ class SyncManager(
      * @param syncDataResponse The SData object containing the sync data response.
      */
     private suspend fun updateLocalData(syncDataResponse: SData) {
+        val startTime = System.currentTimeMillis()
         val mangaList = syncDataResponse.data?.manga ?: emptyList()
         val tracking = mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
         val history = mangaList.flatMap { it.history ?: emptyList() }.map { SyncHistory(it.url, it.lastRead, it.readDuration) }
         val syncCategories = syncDataResponse.data?.categories ?: emptyList()
         val chapters = mangaList.flatMap { it.chapters ?: emptyList() }
-
         // Restore system categories first.
         syncDataResponse.data?.categories?.let { restoreSyncCategories(it) }
-
         // Restore manga and related data.
         restoreManga(mangaList, history, tracking, syncCategories, chapters)
-
-        // Trigger a global update after restoring everything: this should fix the UI prev/next chapter buttons.
-        LibraryUpdateJob.startNow(context)
-
+        // Trigger a global update after restoring everything: this should fix the UI prev/next chapter buttons. // disable global update for now.
+        // LibraryUpdateJob.startNow(context)
         syncPreferences.syncLastSync().set(Instant.now())
         // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
         if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
             syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
         }
+        val endTime = System.currentTimeMillis()
+        val time = endTime - startTime
+        notifier.showSyncComplete(time)
     }
 
     /**
@@ -425,6 +426,8 @@ class SyncManager(
         syncCategories: List<SyncCategory>,
         chapters: List<SyncChapter>,
     ) {
+        restoreAmount = syncMangas.size + 1
+
         syncMangas.forEach { syncManga ->
             val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
             val mangaChapters = chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
@@ -435,6 +438,8 @@ class SyncManager(
             }
             restoreChapters(restoredManga, mangaChapters)
             restoreExtras(restoredManga, syncManga, history, tracks, syncCategories)
+            restoreProgress += 1
+            notifier.showSyncProgress(restoredManga.title, restoreProgress, restoreAmount)
         }
         // update the favorite status for all non-sync manga
         updateFavoriteStatusForNonSyncManga(syncMangas)

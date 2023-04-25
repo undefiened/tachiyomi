@@ -70,10 +70,10 @@ class GoogleDriveSync(private val context: Context) {
             jsonFactory,
             secrets,
             listOf(DriveScopes.DRIVE_FILE),
-        ).build()
+        ).setAccessType("offline").build()
 
         return flow.newAuthorizationUrl()
-            .setRedirectUri("http://127.0.0.1:8000/auth")
+            .setRedirectUri("http://127.0.0.1:53682/auth")
             .build()
     }
 
@@ -150,8 +150,8 @@ class GoogleDriveSync(private val context: Context) {
             secrets.web.clientId,
             secrets.web.clientSecret,
             authorizationCode,
-            "http://127.0.0.1:8000/auth",
-        ).execute()
+            "http://127.0.0.1:53682/auth",
+        ).setGrantType("authorization_code").execute()
 
         try {
             // Save the access token and refresh token

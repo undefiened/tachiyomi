@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.data.sync
 
-import android.net.Uri
 import logcat.LogPriority
 import tachiyomi.core.util.system.logcat
 import java.io.BufferedReader
@@ -10,19 +9,16 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.URI
 
 class OAuthCallbackServer {
 
-    private val port = 8000
+    private val port = 53682
     var onCallback: (String) -> Unit = {}
         private set
 
     fun setOnCallbackListener(onCallbackListener: (String) -> Unit) {
         onCallback = onCallbackListener
-    }
-
-    fun setOnCallback(onCallback: (String) -> Unit) {
-        this.onCallback = onCallback
     }
 
     private val serverThread = ServerThread()
@@ -63,15 +59,15 @@ class OAuthCallbackServer {
 
             if (requestLine != null) {
                 val requestUri = requestLine.split(" ")[1]
-                val uri = Uri.parse(requestUri)
+                val uri = URI(requestUri)
 
                 if (uri.path == "/auth") {
-                    val authorizationCode = uri.getQueryParameter("code")
+                    val queryParams = uri.query.split("&").map { it.split("=") }.associate { it[0] to it[1] }
+                    val authorizationCode = queryParams["code"]
                     if (authorizationCode != null) {
                         onCallback(authorizationCode)
                     } else {
                         logcat(LogPriority.ERROR) { "Google Authorization code is null" }
-                        stopServer()
                     }
 
                     // Send a response to the browser

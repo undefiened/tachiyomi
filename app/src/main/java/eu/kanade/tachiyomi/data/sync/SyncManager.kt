@@ -428,15 +428,13 @@ class SyncManager(
         syncMangas.forEach { syncManga ->
             val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
             val mangaChapters = chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
-            if (dbManga != null) {
-                val restoredManga = restoreExistingManga(syncManga, dbManga)
-                restoreChapters(restoredManga, mangaChapters)
+            val restoredManga = if (dbManga != null) {
+                restoreExistingManga(syncManga, dbManga)
             } else {
-                val restoredNewManga = restoreNewManga(syncManga)
-                restoreChapters(restoredNewManga, mangaChapters)
+                restoreNewManga(syncManga)
             }
-
-            restoreExtras(syncManga, history, tracks, syncCategories)
+            restoreChapters(restoredManga, mangaChapters)
+            restoreExtras(restoredManga, syncManga, history, tracks, syncCategories)
         }
         // update the favorite status for all non-sync manga
         updateFavoriteStatusForNonSyncManga(syncMangas)
@@ -492,18 +490,16 @@ class SyncManager(
     }
 
     /**
-     * Restores the additional sync data related to a given SyncManga object, including the
-     * reading history, tracking, and categories.
+     * Restores the additional sync data related to a given Manga object and its corresponding
+     * SyncManga object, including the reading history, tracking, and categories.
      *
+     * @param manga A Manga object containing the manga data after being restored.
      * @param syncManga A SyncManga object containing the manga data to sync.
      * @param history A list of SyncHistory objects containing the reading history data to sync.
      * @param tracks A list of SyncTracking objects containing the tracking data to sync.
      * @param syncCategories A list of SyncCategory objects containing the category data to sync.
      */
-    private suspend fun restoreExtras(syncManga: SyncManga, history: List<SyncHistory>, tracks: List<SyncTracking>, syncCategories: List<SyncCategory>) {
-        // Convert SyncManga to Manga
-        val manga = syncManga.toManga()
-
+    private suspend fun restoreExtras(manga: Manga, syncManga: SyncManga, history: List<SyncHistory>, tracks: List<SyncTracking>, syncCategories: List<SyncCategory>) {
         restoreSyncCategoriesForManga(manga, syncManga.categories ?: emptyList(), syncCategories)
         restoreHistory(history)
         restoreTracking(manga, tracks)
@@ -701,6 +697,7 @@ class SyncManager(
                 toInsert.add(track.copy(id = 0))
             }
         }
+
         // Update database
         if (toUpdate.isNotEmpty()) {
             handler.await(true) {

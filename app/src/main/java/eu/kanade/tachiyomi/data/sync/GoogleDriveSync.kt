@@ -51,6 +51,11 @@ class GoogleDriveSync(private val context: Context) {
         val accessToken = syncPreferences.getGoogleDriveAccessToken()
         val refreshToken = syncPreferences.getGoogleDriveRefreshToken()
 
+        if (accessToken == "" || refreshToken == "") {
+            googleDriveService = null
+            return
+        }
+
         setupGoogleDriveService(accessToken, refreshToken)
     }
 

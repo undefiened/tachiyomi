@@ -33,7 +33,6 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
 
         return try {
             SyncManager(context).syncData()
-            notifier.showSyncComplete()
             Result.success()
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e)
@@ -84,6 +83,10 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
                 .addTag(TAG_MANUAL)
                 .build()
             context.workManager.enqueueUniqueWork(TAG_MANUAL, ExistingWorkPolicy.KEEP, request)
+        }
+
+        fun stop(context: Context) {
+            context.workManager.cancelUniqueWork(TAG_MANUAL)
         }
     }
 }

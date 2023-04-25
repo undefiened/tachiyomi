@@ -5,11 +5,13 @@ import android.graphics.BitmapFactory
 import androidx.core.app.NotificationCompat
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
+import eu.kanade.tachiyomi.data.notification.NotificationReceiver
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.cancelNotification
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
 import uy.kohesive.injekt.injectLazy
+import java.util.concurrent.TimeUnit
 
 class SyncNotifier(private val context: Context) {
 
@@ -33,11 +35,23 @@ class SyncNotifier(private val context: Context) {
         context.notify(id, build())
     }
 
-    fun showSyncProgress(): NotificationCompat.Builder {
+    fun showSyncProgress(content: String = "", progress: Int = 0, maxAmount: Int = 100): NotificationCompat.Builder {
         val builder = with(progressNotificationBuilder) {
             setContentTitle(context.getString(R.string.syncing_data))
 
-            setProgress(0, 0, true)
+            if (!preferences.hideNotificationContent().get()) {
+                setContentText(content)
+            }
+
+            setProgress(maxAmount, progress, false)
+            setOnlyAlertOnce(true)
+
+            clearActions()
+            addAction(
+                R.drawable.ic_close_24dp,
+                context.getString(R.string.action_cancel),
+                NotificationReceiver.cancelSyncPendingBroadcast(context, Notifications.ID_SYNC_PROGRESS),
+            )
         }
 
         builder.show(Notifications.ID_SYNC_PROGRESS)
@@ -56,11 +70,20 @@ class SyncNotifier(private val context: Context) {
         }
     }
 
-    fun showSyncComplete() {
+    fun showSyncComplete(time: Long) {
         context.cancelNotification(Notifications.ID_SYNC_PROGRESS)
+
+        val timeString = context.getString(
+            R.string.restore_duration,
+            TimeUnit.MILLISECONDS.toMinutes(time),
+            TimeUnit.MILLISECONDS.toSeconds(time) - TimeUnit.MINUTES.toSeconds(
+                TimeUnit.MILLISECONDS.toMinutes(time),
+            ),
+        )
 
         with(completeNotificationBuilder) {
             setContentTitle(context.getString(R.string.sync_complete))
+            setContentText(context.getString(R.string.sync_completed_message, timeString))
 
             show(Notifications.ID_SYNC_COMPLETE)
         }

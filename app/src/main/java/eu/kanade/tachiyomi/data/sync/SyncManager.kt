@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import eu.kanade.domain.chapter.model.copyFrom
 import eu.kanade.tachiyomi.data.sync.models.Data
+import eu.kanade.tachiyomi.data.sync.models.MangaTrackExtra
 import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncCategory
 import eu.kanade.tachiyomi.data.sync.models.SyncCategory.Companion.toCategory
@@ -117,15 +118,31 @@ class SyncManager(
 
         when (val syncService = SyncService.fromInt(syncPreferences.syncService().get())) {
             SyncService.GOOGLE_DRIVE -> {
-                syncDataWithServer(SyncService.GOOGLE_DRIVE, null, null, mangaList, categoriesList, extensionsList)
+                syncDataWithServer(
+                    SyncService.GOOGLE_DRIVE,
+                    null,
+                    null,
+                    mangaList,
+                    categoriesList,
+                    extensionsList,
+                )
             }
+
             SyncService.SELF_HOSTED -> {
                 val host = syncPreferences.syncHost().get()
                 val apiKey = syncPreferences.syncAPIKey().get()
                 val url = "$host/api/sync/data"
 
-                syncDataWithServer(SyncService.SELF_HOSTED, url, apiKey, mangaList, categoriesList, extensionsList)
+                syncDataWithServer(
+                    SyncService.SELF_HOSTED,
+                    url,
+                    apiKey,
+                    mangaList,
+                    categoriesList,
+                    extensionsList,
+                )
             }
+
             else -> {
                 logcat(LogPriority.ERROR) { "Invalid sync service type: $syncService" }
             }
@@ -147,16 +164,28 @@ class SyncManager(
         val syncMangaList = mutableListOf<SyncManga>()
 
         for (m in mangaList) {
-            val chapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(m.id, syncChapterMapper) }
+            val chapters =
+                handler.awaitList { chaptersQueries.getChaptersByMangaId(m.id, syncChapterMapper) }
 
             val categoriesForManga = getCategories.await(m.id)
 
-            val tracks = handler.awaitList { manga_syncQueries.getTracksByMangaId(m.id, syncTrackMapper) }
+            val tracks =
+                handler.awaitList { manga_syncQueries.getTracksByMangaId(m.id, syncTrackMapper) }
 
-            val historyByMangaId = handler.awaitList(true) { historyQueries.getHistoryByMangaId(m.id) }
+            val historyByMangaId =
+                handler.awaitList(true) { historyQueries.getHistoryByMangaId(m.id) }
             val history = historyByMangaId.map { history ->
-                val chapter = handler.awaitOne { chaptersQueries.getChapterById(history.chapter_id) }
+                val chapter =
+                    handler.awaitOne { chaptersQueries.getChapterById(history.chapter_id) }
                 SyncHistory(chapter.url, history.last_read?.time ?: 0L, history.time_read)
+            }
+
+            val trackExtras = tracks.map { track ->
+                MangaTrackExtra(
+                    syncTracking = track,
+                    mangaUrl = m.url,
+                    mangaSource = m.source,
+                )
             }
 
             // Create SyncManga directly from Manga
@@ -192,17 +221,13 @@ class SyncManager(
                         mangaSource = m.source,
                     )
                 },
-                tracking = mutableListOf(),
+                tracking = trackExtras,
                 categories = categoriesForManga.map { it.order },
                 viewer_flags = m.viewerFlags.toInt(),
                 history = history,
                 updateStrategy = m.updateStrategy,
                 lastModifiedAt = m.lastModifiedAt,
             )
-
-            if (tracks.isNotEmpty()) {
-                syncManga.tracking?.addAll(tracks)
-            }
 
             syncMangaList.add(syncManga)
         }
@@ -259,7 +284,14 @@ class SyncManager(
      * @param categories A list of SyncCategory objects representing the categories data to be synced.
      * @param extensions A list of SyncExtension objects representing the extensions data to be synced.
      */
-    private suspend fun syncDataWithServer(syncService: SyncService, url: String?, apiKey: String?, mangaList: List<SyncManga>, categories: List<SyncCategory>, extensions: List<SyncExtension>) {
+    private suspend fun syncDataWithServer(
+        syncService: SyncService,
+        url: String?,
+        apiKey: String?,
+        mangaList: List<SyncManga>,
+        categories: List<SyncCategory>,
+        extensions: List<SyncExtension>,
+    ) {
         // Create the SyncStatus object
         val syncStatus = SyncStatus(
             lastSynced = Instant.now().toString(),
@@ -295,14 +327,21 @@ class SyncManager(
                 val googleDriveSync = GoogleDriveSync(context)
                 val syncWithGdrive = googleDriveSync.uploadToGoogleDrive(jsonData)
                 if (syncWithGdrive != null) {
-                    sendSyncData(url = "", apiKey = "", jsonData = syncWithGdrive, storageType = "GoogleDrive")
+                    sendSyncData(
+                        url = "",
+                        apiKey = "",
+                        jsonData = syncWithGdrive,
+                        storageType = "GoogleDrive",
+                    )
                 }
             }
+
             SyncService.SELF_HOSTED -> {
                 if (url != null && apiKey != null) {
                     sendSyncData(url, apiKey, jsonData)
                 }
             }
+
             else -> {
                 logcat(LogPriority.ERROR) { "Invalid sync service type: $syncService" }
             }
@@ -322,7 +361,12 @@ class SyncManager(
      * @param jsonData The JSON string containing the sync data.
      * @param storageType The storage type to use for sync (e.g., "GoogleDrive"). Defaults to null for server sync.
      */
-    private suspend fun sendSyncData(url: String, apiKey: String, jsonData: String, storageType: String? = null) {
+    private suspend fun sendSyncData(
+        url: String,
+        apiKey: String,
+        jsonData: String,
+        storageType: String? = null,
+    ) {
         if (storageType == "GoogleDrive") {
             val googleDriveSync = GoogleDriveSync(context)
             val combinedJsonData = googleDriveSync.uploadToGoogleDrive(jsonData)
@@ -360,7 +404,9 @@ class SyncManager(
                     syncPreferences.syncLastSync().set(Instant.now())
 
                     // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
-                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
+                    if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID()
+                        .get() != syncDataResponse.device?.id
+                    ) {
                         syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
                     }
 
@@ -391,8 +437,10 @@ class SyncManager(
         val startTime = System.currentTimeMillis()
         val allManga = syncDataResponse.data?.manga ?: emptyList()
         val mangaList = mergeFavoriteMangas(allManga)
-        val tracking = mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
-        val history = mangaList.flatMap { it.history ?: emptyList() }.map { SyncHistory(it.url, it.lastRead, it.readDuration) }
+        val tracking =
+            mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
+        val history = mangaList.flatMap { it.history ?: emptyList() }
+            .map { SyncHistory(it.url, it.lastRead, it.readDuration) }
         val syncCategories = syncDataResponse.data?.categories ?: emptyList()
         val chapters = mangaList.flatMap { it.chapters ?: emptyList() }
         // Restore system categories first.
@@ -403,7 +451,9 @@ class SyncManager(
         // LibraryUpdateJob.startNow(context)
         syncPreferences.syncLastSync().set(Instant.now())
         // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
-        if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID().get() != syncDataResponse.device?.id) {
+        if (syncPreferences.deviceID().get() == 0 || syncPreferences.deviceID()
+            .get() != syncDataResponse.device?.id
+        ) {
             syncDataResponse.device?.id?.let { syncPreferences.deviceID().set(it) }
         }
         val endTime = System.currentTimeMillis()
@@ -426,10 +476,11 @@ class SyncManager(
     private suspend fun restoreManga(
         syncMangas: List<SyncManga>,
         history: List<SyncHistory>,
-        tracks: List<SyncTracking>,
+        tracks: List<MangaTrackExtra>,
         syncCategories: List<SyncCategory>,
         chapters: List<SyncChapter>,
     ): Boolean {
+        val sourceMapping: Map<Long, String> = emptyMap()
         restoreAmount = syncMangas.size + 1
 
         return coroutineScope {
@@ -439,17 +490,40 @@ class SyncManager(
                     return@coroutineScope false
                 }
 
-                val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
-                val mangaChapters = chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
-                val restoredManga = if (dbManga != null) {
-                    restoreExistingManga(syncManga, dbManga)
-                } else {
-                    restoreNewManga(syncManga)
+                val dbManga = syncManga.source?.let { source ->
+                    syncManga.url?.let { url ->
+                        getMangaFromDatabase(
+                            url,
+                            source,
+                        )
+                    }
                 }
-                restoreChapters(restoredManga, mangaChapters)
-                restoreExtras(restoredManga, syncManga, history, tracks, syncCategories)
+                val mangaChapters =
+                    chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
+
+                try {
+                    val restoredManga = if (dbManga != null) {
+                        // Manga in database
+                        restoreExistingManga(syncManga, dbManga)
+                    } else {
+                        // Manga not in database
+                        restoreNewManga(syncManga)
+                    }
+                    restoreChapters(restoredManga, mangaChapters)
+                    restoreExtras(restoredManga, syncManga, history, tracks, syncCategories)
+                } catch (e: Exception) {
+                    val sourceName = sourceMapping[syncManga.source] ?: syncManga.source.toString()
+                    logcat(priority = LogPriority.DEBUG) { "Failed to restore manga: ${syncManga.title} ($sourceName)" }
+                }
+
                 restoreProgress += 1
-                notifier.showSyncProgress(restoredManga.title, restoreProgress, restoreAmount)
+                syncManga.title?.let {
+                    notifier.showSyncProgress(
+                        it,
+                        restoreProgress,
+                        restoreAmount,
+                    )
+                }
             }
             true
         }
@@ -510,11 +584,25 @@ class SyncManager(
      * @param tracks A list of SyncTracking objects containing the tracking data to sync.
      * @param syncCategories A list of SyncCategory objects containing the category data to sync.
      */
-    private suspend fun restoreExtras(manga: Manga, syncManga: SyncManga, history: List<SyncHistory>, tracks: List<SyncTracking>, syncCategories: List<SyncCategory>) {
+    private suspend fun restoreExtras(
+        manga: Manga,
+        syncManga: SyncManga,
+        history: List<SyncHistory>,
+        trackExtras: List<MangaTrackExtra>,
+        syncCategories: List<SyncCategory>,
+    ) {
         handler.await(true) {
-            restoreSyncCategoriesForManga(manga, syncManga.categories ?: emptyList(), syncCategories)
+            restoreSyncCategoriesForManga(
+                manga,
+                syncManga.categories ?: emptyList(),
+                syncCategories,
+            )
             restoreHistory(history) // bottleneck
-            restoreTracking(manga, tracks)
+
+            // Filter tracks for the current manga
+            val mangaTracks = trackExtras.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
+                .map { it.syncTracking }
+            restoreTracking(manga, mangaTracks)
         }
     }
 
@@ -572,7 +660,11 @@ class SyncManager(
      * @param categories A list of category IDs to be associated with the Manga.
      * @param syncCategories A list of SyncCategory objects containing the category data to sync.
      */
-    private suspend fun restoreSyncCategoriesForManga(manga: Manga, categories: List<Long>, syncCategories: List<SyncCategory>) {
+    private suspend fun restoreSyncCategoriesForManga(
+        manga: Manga,
+        categories: List<Long>,
+        syncCategories: List<SyncCategory>,
+    ) {
         val m = getMangaFromDatabase(manga.url, manga.source)
         val dbCategories = getCategories.await()
         val mangaCategoriesToUpdate = mutableListOf<Pair<Long, Long>>()
@@ -628,7 +720,8 @@ class SyncManager(
 
             val dbHistory = handler.awaitOneOrNull { historyQueries.getHistoryByChapterUrl(url) }
             if (dbHistory != null) {
-                val updatedReadDuration = max(readDuration, dbHistory.time_read) - dbHistory.time_read
+                val updatedReadDuration =
+                    max(readDuration, dbHistory.time_read) - dbHistory.time_read
                 toUpdate.add(
                     HistoryUpdate(
                         chapterId = dbHistory.chapter_id,
@@ -674,37 +767,78 @@ class SyncManager(
 
         // Get tracks from database
         val dbTracks = handler.awaitList { manga_syncQueries.getTracksByMangaId(manga.id) }
-        val dbTracksMap = dbTracks.associateBy { it.sync_id }
+        val toUpdate = mutableListOf<Manga_sync>()
+        val toInsert = mutableListOf<Track>()
 
-        // Divide tracks into two separate lists: those that need to be updated and those that need to be inserted
-        val (toUpdate, toInsert) = tracks.partition { it.syncId in dbTracksMap }
-
-        // Update existing tracks in the database
-        if (toUpdate.isNotEmpty()) {
-            val updatedTracks = toUpdate.map { track ->
-                val dbTrack = dbTracksMap[track.syncId]!!
-                dbTrack.copy(
-                    remote_id = track.remoteId,
-                    library_id = track.libraryId,
-                    last_chapter_read = max(dbTrack.last_chapter_read, track.lastChapterRead),
-                    total_chapters = track.totalChapters,
-                    status = track.status,
-                    score = track.score,
-                    remote_url = track.remoteUrl,
-                    start_date = track.startDate,
-                    finish_date = track.finishDate,
-                )
+        tracks.forEach { track ->
+            var isInDatabase = false
+            for (dbTrack in dbTracks) {
+                if (track.syncId == dbTrack.sync_id) {
+                    // The sync is already in the db, only update its fields
+                    var temp = dbTrack
+                    if (track.remoteId != dbTrack.remote_id) {
+                        temp = temp.copy(remote_id = track.remoteId)
+                    }
+                    if (track.libraryId != dbTrack.library_id) {
+                        temp = temp.copy(library_id = track.libraryId)
+                    }
+                    temp = temp.copy(
+                        last_chapter_read = max(
+                            dbTrack.last_chapter_read,
+                            track.lastChapterRead,
+                        ),
+                    )
+                    isInDatabase = true
+                    toUpdate.add(temp)
+                    break
+                }
             }
-
-            updateTrackingBatch(updatedTracks)
+            if (!isInDatabase) {
+                // Insert new sync. Let the db assign the id
+                toInsert.add(track.copy(id = 0))
+            }
         }
 
-        // Insert new tracks into the database
-        if (toInsert.isNotEmpty()) {
-            val insertTracks = toInsert.map { track ->
-                track.copy(id = 0)
+        // Update database
+        handler.await(true) {
+            manga_syncQueries.transaction {
+                toUpdate.forEach { track ->
+                    manga_syncQueries.update(
+                        track.manga_id,
+                        track.sync_id,
+                        track.remote_id,
+                        track.library_id,
+                        track.title,
+                        track.last_chapter_read,
+                        track.total_chapters,
+                        track.status,
+                        track.score.toDouble(),
+                        track.remote_url,
+                        track.start_date,
+                        track.finish_date,
+                        track._id,
+                    )
+                }
             }
-            insertTrackingBatch(insertTracks)
+
+            manga_syncQueries.transaction {
+                toInsert.forEach { track ->
+                    manga_syncQueries.insert(
+                        track.mangaId,
+                        track.syncId,
+                        track.remoteId,
+                        track.libraryId,
+                        track.title,
+                        track.lastChapterRead,
+                        track.totalChapters,
+                        track.status,
+                        track.score,
+                        track.remoteUrl,
+                        track.startDate,
+                        track.finishDate,
+                    )
+                }
+            }
         }
     }
 
@@ -729,7 +863,10 @@ class SyncManager(
                 updatedChapter = updatedChapter.copy(id = dbChapter._id)
                 updatedChapter = updatedChapter.copyFrom(dbChapter)
                 if (dbChapter.read != chapter.read) {
-                    updatedChapter = updatedChapter.copy(read = chapter.read, lastPageRead = chapter.lastPageRead)
+                    updatedChapter = updatedChapter.copy(
+                        read = chapter.read,
+                        lastPageRead = chapter.lastPageRead,
+                    )
                 } else if (updatedChapter.lastPageRead == 0L && dbChapter.last_page_read != 0L) {
                     updatedChapter = updatedChapter.copy(lastPageRead = dbChapter.last_page_read)
                 }
@@ -891,49 +1028,6 @@ class SyncManager(
                     dateFetch = null,
                     dateUpload = null,
                     chapterId = chapter.id,
-                )
-            }
-        }
-    }
-
-    private suspend fun updateTrackingBatch(tracks: List<Manga_sync>) {
-        handler.await(inTransaction = true) {
-            tracks.forEach { track ->
-                manga_syncQueries.update(
-                    track.manga_id,
-                    track.sync_id,
-                    track.remote_id,
-                    track.library_id,
-                    track.title,
-                    track.last_chapter_read,
-                    track.total_chapters,
-                    track.status,
-                    track.score.toDouble(),
-                    track.remote_url,
-                    track.start_date,
-                    track.finish_date,
-                    track._id,
-                )
-            }
-        }
-    }
-
-    private suspend fun insertTrackingBatch(tracks: List<Track>) {
-        handler.await(inTransaction = true) {
-            tracks.forEach { track ->
-                manga_syncQueries.insert(
-                    track.mangaId,
-                    track.syncId,
-                    track.remoteId,
-                    track.libraryId,
-                    track.title,
-                    track.lastChapterRead,
-                    track.totalChapters,
-                    track.status,
-                    track.score,
-                    track.remoteUrl,
-                    track.startDate,
-                    track.finishDate,
                 )
             }
         }

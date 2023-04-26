@@ -32,7 +32,7 @@ data class SyncManga(
     val viewer: Int? = null,
     val chapters: List<SyncChapter>? = null,
     val categories: List<Long>? = null,
-    val tracking: MutableList<SyncTracking>? = null,
+    val tracking: List<MangaTrackExtra>? = null,
     val viewer_flags: Int? = null,
     val history: List<SyncHistory>? = null,
     val updateStrategy: UpdateStrategy = UpdateStrategy.ALWAYS_UPDATE,
@@ -223,6 +223,13 @@ val syncCategoryMapper = { category: Category ->
         flags = category.flags,
     )
 }
+
+@Serializable
+data class MangaTrackExtra(
+    val syncTracking: SyncTracking,
+    val mangaUrl: String?,
+    val mangaSource: Long?,
+)
 
 @Serializable
 data class Data(

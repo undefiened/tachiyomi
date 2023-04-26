@@ -24,6 +24,8 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.model.copyFrom
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingModeType
 import eu.kanade.tachiyomi.util.system.copyToClipboard
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -38,6 +40,7 @@ import tachiyomi.core.util.system.logcat
 import tachiyomi.data.DatabaseHandler
 import tachiyomi.data.Manga_sync
 import tachiyomi.data.Mangas
+import tachiyomi.data.manga.mangaMapper
 import tachiyomi.data.updateStrategyAdapter
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.category.model.Category
@@ -104,12 +107,13 @@ class SyncManager(
      * as it is marked as a suspend function.
      */
     suspend fun syncData() {
-        val favorites = getFavorites.await()
+        val allManga = getAllMangaFromDB()
+//        val favorites = getFavorites.await() -- this not used anymore
 
-        logcat(LogPriority.DEBUG) { "Mangas to sync: $favorites" }
+        logcat(LogPriority.DEBUG) { "Mangas to sync: $allManga" }
 
-        val mangaList = mangaList(favorites)
-        val extensionsList = getExtensionInfo(favorites)
+        val mangaList = mangaList(allManga)
+        val extensionsList = getExtensionInfo(allManga)
         val categoriesList = getCategories()
 
         when (val syncService = SyncService.fromInt(syncPreferences.syncService().get())) {
@@ -386,7 +390,8 @@ class SyncManager(
      */
     private suspend fun updateLocalData(syncDataResponse: SData) {
         val startTime = System.currentTimeMillis()
-        val mangaList = syncDataResponse.data?.manga ?: emptyList()
+        val allManga = syncDataResponse.data?.manga ?: emptyList()
+        val mangaList = mergeFavoriteMangas(allManga)
         val tracking = mangaList.flatMap { syncManga: SyncManga -> syncManga.tracking ?: emptyList() }
         val history = mangaList.flatMap { it.history ?: emptyList() }.map { SyncHistory(it.url, it.lastRead, it.readDuration) }
         val syncCategories = syncDataResponse.data?.categories ?: emptyList()
@@ -425,24 +430,30 @@ class SyncManager(
         tracks: List<SyncTracking>,
         syncCategories: List<SyncCategory>,
         chapters: List<SyncChapter>,
-    ) {
+    ): Boolean {
         restoreAmount = syncMangas.size + 1
 
-        syncMangas.forEach { syncManga ->
-            val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
-            val mangaChapters = chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
-            val restoredManga = if (dbManga != null) {
-                restoreExistingManga(syncManga, dbManga)
-            } else {
-                restoreNewManga(syncManga)
+        return coroutineScope {
+            // Restore individual manga
+            syncMangas.forEach { syncManga ->
+                if (!isActive) {
+                    return@coroutineScope false
+                }
+
+                val dbManga = syncManga.source?.let { source -> syncManga.url?.let { url -> getMangaFromDatabase(url, source) } }
+                val mangaChapters = chapters.filter { it.mangaUrl == syncManga.url && it.mangaSource == syncManga.source }
+                val restoredManga = if (dbManga != null) {
+                    restoreExistingManga(syncManga, dbManga)
+                } else {
+                    restoreNewManga(syncManga)
+                }
+                restoreChapters(restoredManga, mangaChapters)
+                restoreExtras(restoredManga, syncManga, history, tracks, syncCategories)
+                restoreProgress += 1
+                notifier.showSyncProgress(restoredManga.title, restoreProgress, restoreAmount)
             }
-            restoreChapters(restoredManga, mangaChapters)
-            restoreExtras(restoredManga, syncManga, history, tracks, syncCategories)
-            restoreProgress += 1
-            notifier.showSyncProgress(restoredManga.title, restoreProgress, restoreAmount)
+            true
         }
-        // update the favorite status for all non-sync manga
-        updateFavoriteStatusForNonSyncManga(syncMangas)
     }
 
     /**
@@ -475,23 +486,18 @@ class SyncManager(
         )
     }
 
-    /**
-     * Updates the favorite status for all local manga that are not included in the given list of SyncManga.
-     * If a local manga is marked as favorite but not found in the SyncManga list, its favorite status will be updated to false.
-     *
-     * @param syncMangaList a list of SyncManga to compare against the local manga list
-     */
-    private suspend fun updateFavoriteStatusForNonSyncManga(syncMangaList: List<SyncManga>) {
-        val localMangaList = getAllMangaFromDatabase()
+    private suspend fun mergeFavoriteMangas(syncMangaList: List<SyncManga>): List<SyncManga> {
+        val localFavorites = getFavorites.await()
+        val localFavoritesUrls = localFavorites.map { it.url }.toSet()
 
-        localMangaList.forEach { dbManga ->
-            val syncManga = syncMangaList.find { it.url == dbManga.url && it.source == dbManga.source }
+        val syncFavorites = syncMangaList.filter { it.favorite == true }
+        val newFavorites = syncFavorites.filter { it.url !in localFavoritesUrls }
 
-            if (syncManga == null && dbManga.favorite) {
-                val updatedManga = convertMangasToManga(dbManga).copy(favorite = false)
-                updateManga(updatedManga)
-            }
+        val updatedLocalFavorites = localFavorites.mapNotNull { localFavorite ->
+            syncFavorites.find { it.url == localFavorite.url }?.copy(favorite = true)
         }
+
+        return updatedLocalFavorites + newFavorites
     }
 
     /**
@@ -505,9 +511,11 @@ class SyncManager(
      * @param syncCategories A list of SyncCategory objects containing the category data to sync.
      */
     private suspend fun restoreExtras(manga: Manga, syncManga: SyncManga, history: List<SyncHistory>, tracks: List<SyncTracking>, syncCategories: List<SyncCategory>) {
-        restoreSyncCategoriesForManga(manga, syncManga.categories ?: emptyList(), syncCategories)
-        restoreHistory(history)
-        restoreTracking(manga, tracks)
+        handler.await(true) {
+            restoreSyncCategoriesForManga(manga, syncManga.categories ?: emptyList(), syncCategories)
+            restoreHistory(history) // bottleneck
+            restoreTracking(manga, tracks)
+        }
     }
 
     /**
@@ -611,49 +619,39 @@ class SyncManager(
      * @param history A list of SyncHistory objects containing the reading history data to sync.
      */
     private suspend fun restoreHistory(history: List<SyncHistory>) {
-        // List containing history to be updated
         val toUpdate = mutableListOf<HistoryUpdate>()
+
         for (syncHistory in history) {
             val url = syncHistory.url ?: continue
             val lastRead = syncHistory.lastRead ?: 0L
             val readDuration = syncHistory.readDuration ?: 0L
 
-            var dbHistory = handler.awaitOneOrNull { historyQueries.getHistoryByChapterUrl(url) }
-            // Check if history already in database and update
+            val dbHistory = handler.awaitOneOrNull { historyQueries.getHistoryByChapterUrl(url) }
             if (dbHistory != null) {
-                dbHistory = dbHistory.copy(
-                    last_read = Date(max(lastRead, dbHistory.last_read?.time ?: 0L)),
-                    time_read = max(readDuration, dbHistory.time_read) - dbHistory.time_read,
-                )
+                val updatedReadDuration = max(readDuration, dbHistory.time_read) - dbHistory.time_read
                 toUpdate.add(
                     HistoryUpdate(
                         chapterId = dbHistory.chapter_id,
-                        readAt = dbHistory.last_read!!,
-                        sessionReadDuration = dbHistory.time_read,
+                        readAt = Date(max(lastRead, dbHistory.last_read?.time ?: 0L)),
+                        sessionReadDuration = updatedReadDuration,
                     ),
                 )
             } else {
-                // If not in database create
-                handler
-                    .awaitOneOrNull { chaptersQueries.getChapterByUrl(url) }
-                    ?.let {
-                        toUpdate.add(
-                            HistoryUpdate(
-                                chapterId = it._id,
-                                readAt = Date(lastRead),
-                                sessionReadDuration = readDuration,
-                            ),
-                        )
-                    }
+                handler.awaitOneOrNull { chaptersQueries.getChapterByUrl(url) }?.let {
+                    toUpdate.add(
+                        HistoryUpdate(
+                            chapterId = it._id,
+                            readAt = Date(lastRead),
+                            sessionReadDuration = readDuration,
+                        ),
+                    )
+                }
             }
         }
+
         handler.await(true) {
-            toUpdate.forEach { payload ->
-                historyQueries.upsert(
-                    payload.chapterId,
-                    payload.readAt,
-                    payload.sessionReadDuration,
-                )
+            toUpdate.forEach { update ->
+                historyQueries.upsert(update.chapterId, update.readAt, update.sessionReadDuration)
             }
         }
     }
@@ -676,74 +674,37 @@ class SyncManager(
 
         // Get tracks from database
         val dbTracks = handler.awaitList { manga_syncQueries.getTracksByMangaId(manga.id) }
-        val toUpdate = mutableListOf<Manga_sync>()
-        val toInsert = mutableListOf<Track>()
+        val dbTracksMap = dbTracks.associateBy { it.sync_id }
 
-        tracks.forEach { track ->
-            var isInDatabase = false
-            for (dbTrack in dbTracks) {
-                if (track.syncId == dbTrack.sync_id) {
-                    // The sync is already in the db, only update its fields
-                    var temp = dbTrack
-                    if (track.remoteId != dbTrack.remote_id) {
-                        temp = temp.copy(remote_id = track.remoteId)
-                    }
-                    if (track.libraryId != dbTrack.library_id) {
-                        temp = temp.copy(library_id = track.libraryId)
-                    }
-                    temp = temp.copy(last_chapter_read = max(dbTrack.last_chapter_read, track.lastChapterRead))
-                    isInDatabase = true
-                    toUpdate.add(temp)
-                    break
-                }
-            }
-            if (!isInDatabase) {
-                // Insert new sync. Let the db assign the id
-                toInsert.add(track.copy(id = 0))
-            }
-        }
+        // Divide tracks into two separate lists: those that need to be updated and those that need to be inserted
+        val (toUpdate, toInsert) = tracks.partition { it.syncId in dbTracksMap }
 
-        // Update database
+        // Update existing tracks in the database
         if (toUpdate.isNotEmpty()) {
-            handler.await(true) {
-                toUpdate.forEach { track ->
-                    manga_syncQueries.update(
-                        track.manga_id,
-                        track.sync_id,
-                        track.remote_id,
-                        track.library_id,
-                        track.title,
-                        track.last_chapter_read,
-                        track.total_chapters,
-                        track.status,
-                        track.score.toDouble(),
-                        track.remote_url,
-                        track.start_date,
-                        track.finish_date,
-                        track._id,
-                    )
-                }
+            val updatedTracks = toUpdate.map { track ->
+                val dbTrack = dbTracksMap[track.syncId]!!
+                dbTrack.copy(
+                    remote_id = track.remoteId,
+                    library_id = track.libraryId,
+                    last_chapter_read = max(dbTrack.last_chapter_read, track.lastChapterRead),
+                    total_chapters = track.totalChapters,
+                    status = track.status,
+                    score = track.score,
+                    remote_url = track.remoteUrl,
+                    start_date = track.startDate,
+                    finish_date = track.finishDate,
+                )
             }
+
+            updateTrackingBatch(updatedTracks)
         }
+
+        // Insert new tracks into the database
         if (toInsert.isNotEmpty()) {
-            handler.await(true) {
-                toInsert.forEach { track ->
-                    manga_syncQueries.insert(
-                        track.mangaId,
-                        track.syncId,
-                        track.remoteId,
-                        track.libraryId,
-                        track.title,
-                        track.lastChapterRead,
-                        track.totalChapters,
-                        track.status,
-                        track.score,
-                        track.remoteUrl,
-                        track.startDate,
-                        track.finishDate,
-                    )
-                }
+            val insertTracks = toInsert.map { track ->
+                track.copy(id = 0)
             }
+            insertTrackingBatch(insertTracks)
         }
     }
 
@@ -860,8 +821,8 @@ class SyncManager(
      *
      * @return a list of all manga stored in the database
      */
-    private suspend fun getAllMangaFromDatabase(): List<Mangas> {
-        return handler.awaitList { mangasQueries.getAllManga() }
+    private suspend fun getAllMangaFromDB(): List<Manga> {
+        return handler.awaitList { mangasQueries.getAllManga(mangaMapper) }
     }
 
     /**
@@ -930,6 +891,49 @@ class SyncManager(
                     dateFetch = null,
                     dateUpload = null,
                     chapterId = chapter.id,
+                )
+            }
+        }
+    }
+
+    private suspend fun updateTrackingBatch(tracks: List<Manga_sync>) {
+        handler.await(inTransaction = true) {
+            tracks.forEach { track ->
+                manga_syncQueries.update(
+                    track.manga_id,
+                    track.sync_id,
+                    track.remote_id,
+                    track.library_id,
+                    track.title,
+                    track.last_chapter_read,
+                    track.total_chapters,
+                    track.status,
+                    track.score.toDouble(),
+                    track.remote_url,
+                    track.start_date,
+                    track.finish_date,
+                    track._id,
+                )
+            }
+        }
+    }
+
+    private suspend fun insertTrackingBatch(tracks: List<Track>) {
+        handler.await(inTransaction = true) {
+            tracks.forEach { track ->
+                manga_syncQueries.insert(
+                    track.mangaId,
+                    track.syncId,
+                    track.remoteId,
+                    track.libraryId,
+                    track.title,
+                    track.lastChapterRead,
+                    track.totalChapters,
+                    track.status,
+                    track.score,
+                    track.remoteUrl,
+                    track.startDate,
+                    track.finishDate,
                 )
             }
         }

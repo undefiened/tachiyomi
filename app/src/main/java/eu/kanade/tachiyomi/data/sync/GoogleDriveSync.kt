@@ -351,7 +351,12 @@ class GoogleDriveSync(private val context: Context) {
                 val remoteChapters = remoteManga.chapters ?: emptyList()
                 val mergedChapters = mergeChapters(localChapters, remoteChapters)
 
-                val isFavorite = localManga.favorite == true || remoteManga.favorite == true
+                val isFavorite = if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
+                    localManga.favorite
+                } else {
+                    remoteManga.favorite
+                }
+
                 mergedMangaMap[key] = mergedManga.copy(chapters = mergedChapters, favorite = isFavorite)
             } else {
                 mergedMangaMap[key] = localManga

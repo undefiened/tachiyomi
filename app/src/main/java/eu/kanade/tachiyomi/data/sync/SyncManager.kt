@@ -108,7 +108,6 @@ class SyncManager(
      */
     suspend fun syncData() {
         val allManga = getAllMangaFromDB()
-//        val favorites = getFavorites.await() -- this not used anymore
 
         logcat(LogPriority.DEBUG) { "Mangas to sync: $allManga" }
 
@@ -494,7 +493,8 @@ class SyncManager(
         val newFavorites = syncFavorites.filter { it.url !in localFavoritesUrls }
 
         val updatedLocalFavorites = localFavorites.mapNotNull { localFavorite ->
-            syncFavorites.find { it.url == localFavorite.url }?.copy(favorite = true)
+            val remoteManga = syncMangaList.find { it.url == localFavorite.url }
+            remoteManga?.copy(favorite = remoteManga.favorite)
         }
 
         return updatedLocalFavorites + newFavorites

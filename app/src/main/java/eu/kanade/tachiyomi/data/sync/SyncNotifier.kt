@@ -43,7 +43,7 @@ class SyncNotifier(private val context: Context) {
                 setContentText(content)
             }
 
-            setProgress(maxAmount, progress, false)
+            setProgress(maxAmount, progress, true)
             setOnlyAlertOnce(true)
 
             clearActions()

@@ -17,11 +17,11 @@ import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
 import com.google.gson.Gson
-import eu.kanade.tachiyomi.data.sync.models.Data
+import eu.kanade.tachiyomi.data.backup.models.Backup
+import eu.kanade.tachiyomi.data.backup.models.BackupCategory
+import eu.kanade.tachiyomi.data.backup.models.BackupChapter
+import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.sync.models.SData
-import eu.kanade.tachiyomi.data.sync.models.SyncCategory
-import eu.kanade.tachiyomi.data.sync.models.SyncChapter
-import eu.kanade.tachiyomi.data.sync.models.SyncManga
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
@@ -268,6 +268,7 @@ class GoogleDriveSync(private val context: Context) {
 
             // Return the original jsonData since there is no existing data to merge
             combinedJsonData = jsonData
+            return combinedJsonData
         } else {
             // Download the existing data from Google Drive
             val existingData = downloadFromGoogleDrive(fileList[0].id)
@@ -298,20 +299,21 @@ class GoogleDriveSync(private val context: Context) {
         val localSyncData: SData = gson.fromJson(localJsonData, SData::class.java)
         val remoteSyncData: SData = gson.fromJson(remoteJsonData, SData::class.java)
 
-        val mergedMangaList = mergeMangaLists(localSyncData.data?.manga, remoteSyncData.data?.manga)
-        val mergedCategoriesList = mergeCategoriesLists(localSyncData.data?.categories, remoteSyncData.data?.categories)
+        val mergedMangaList = mergeMangaLists(localSyncData.backup?.backupManga, remoteSyncData.backup?.backupManga)
+        val mergedCategoriesList = mergeCategoriesLists(localSyncData.backup?.backupCategories, remoteSyncData.backup?.backupCategories)
 
-        // Create the merged Data object
-        val mergedData = Data(
-            manga = mergedMangaList,
-            extensions = localSyncData.data?.extensions, // extensions are not synced
-            categories = mergedCategoriesList,
+        // Create the merged Backup object
+        val mergedBackup = Backup(
+            backupManga = mergedMangaList,
+            backupCategories = mergedCategoriesList,
+            backupBrokenSources = localSyncData.backup?.backupBrokenSources ?: emptyList(),
+            backupSources = localSyncData.backup?.backupSources ?: emptyList(),
         )
 
-        // Create the merged SyncData object
+        // Create the merged SData object
         val mergedSyncData = SData(
             sync = localSyncData.sync, // always use the local sync info
-            data = mergedData,
+            backup = mergedBackup,
             device = localSyncData.device, // always use the local device info
         )
 
@@ -326,14 +328,14 @@ class GoogleDriveSync(private val context: Context) {
      * @param remoteMangaList The list of remote SyncManga objects.
      * @return The merged list of SyncManga objects.
      */
-    private fun mergeMangaLists(localMangaList: List<SyncManga>?, remoteMangaList: List<SyncManga>?): List<SyncManga> {
+    private fun mergeMangaLists(localMangaList: List<BackupManga>?, remoteMangaList: List<BackupManga>?): List<BackupManga> {
         if (localMangaList == null) return remoteMangaList ?: emptyList()
         if (remoteMangaList == null) return localMangaList
 
         val localMangaMap = localMangaList.associateBy { Pair(it.source, it.url) }
         val remoteMangaMap = remoteMangaList.associateBy { Pair(it.source, it.url) }
 
-        val mergedMangaMap = mutableMapOf<Pair<Long?, String?>, SyncManga>()
+        val mergedMangaMap = mutableMapOf<Pair<Long, String>, BackupManga>()
 
         localMangaMap.forEach { (key, localManga) ->
             val remoteManga = remoteMangaMap[key]
@@ -347,8 +349,8 @@ class GoogleDriveSync(private val context: Context) {
                     remoteManga
                 }
 
-                val localChapters = localManga.chapters ?: emptyList()
-                val remoteChapters = remoteManga.chapters ?: emptyList()
+                val localChapters = localManga.chapters
+                val remoteChapters = remoteManga.chapters
                 val mergedChapters = mergeChapters(localChapters, remoteChapters)
 
                 val isFavorite = if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
@@ -380,11 +382,10 @@ class GoogleDriveSync(private val context: Context) {
      * @param remoteChapters The list of remote SyncChapter objects.
      * @return The merged list of SyncChapter objects.
      */
-    private fun mergeChapters(localChapters: List<SyncChapter>, remoteChapters: List<SyncChapter>): List<SyncChapter> {
+    private fun mergeChapters(localChapters: List<BackupChapter>, remoteChapters: List<BackupChapter>): List<BackupChapter> {
         val localChapterMap = localChapters.associateBy { it.url }
         val remoteChapterMap = remoteChapters.associateBy { it.url }
-
-        val mergedChapterMap = mutableMapOf<String?, SyncChapter>()
+        val mergedChapterMap = mutableMapOf<String, BackupChapter>()
 
         localChapterMap.forEach { (url, localChapter) ->
             val remoteChapter = remoteChapterMap[url]
@@ -392,15 +393,12 @@ class GoogleDriveSync(private val context: Context) {
                 val localInstant = localChapter.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
                 val remoteInstant = remoteChapter.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
 
-                val mergedChapter = if ((localInstant ?: Instant.MIN) >= (
-                    remoteInstant
-                        ?: Instant.MIN
-                    )
-                ) {
-                    localChapter
-                } else {
-                    remoteChapter
-                }
+                val mergedChapter =
+                    if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
+                        localChapter
+                    } else {
+                        remoteChapter
+                    }
                 mergedChapterMap[url] = mergedChapter
             } else {
                 mergedChapterMap[url] = localChapter
@@ -423,20 +421,19 @@ class GoogleDriveSync(private val context: Context) {
      * @param remoteCategoriesList The list of remote SyncCategory objects.
      * @return The merged list of SyncCategory objects.
      */
-    private fun mergeCategoriesLists(localCategoriesList: List<SyncCategory>?, remoteCategoriesList: List<SyncCategory>?): List<SyncCategory> {
+    private fun mergeCategoriesLists(localCategoriesList: List<BackupCategory>?, remoteCategoriesList: List<BackupCategory>?): List<BackupCategory> {
         if (localCategoriesList == null) return remoteCategoriesList ?: emptyList()
         if (remoteCategoriesList == null) return localCategoriesList
-
         val localCategoriesMap = localCategoriesList.associateBy { it.name }
         val remoteCategoriesMap = remoteCategoriesList.associateBy { it.name }
 
-        val mergedCategoriesMap = mutableMapOf<String?, SyncCategory>()
+        val mergedCategoriesMap = mutableMapOf<String, BackupCategory>()
 
         localCategoriesMap.forEach { (name, localCategory) ->
             val remoteCategory = remoteCategoriesMap[name]
             if (remoteCategory != null) {
                 // Compare and merge local and remote categories
-                val mergedCategory = if (localCategory.order!! >= remoteCategory.order!!) {
+                val mergedCategory = if (localCategory.order >= remoteCategory.order) {
                     localCategory
                 } else {
                     remoteCategory

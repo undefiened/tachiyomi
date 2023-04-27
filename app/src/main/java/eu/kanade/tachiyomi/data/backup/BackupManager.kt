@@ -135,7 +135,7 @@ class BackupManager(
         }
     }
 
-    private fun backupExtensionInfo(mangas: List<Manga>): List<BackupSource> {
+    fun backupExtensionInfo(mangas: List<Manga>): List<BackupSource> {
         return mangas
             .asSequence()
             .map(Manga::source)
@@ -150,7 +150,7 @@ class BackupManager(
      *
      * @return list of [BackupCategory] to be backed up
      */
-    private suspend fun backupCategories(options: Int): List<BackupCategory> {
+    suspend fun backupCategories(options: Int): List<BackupCategory> {
         // Check if user wants category information in backup
         return if (options and BACKUP_CATEGORY_MASK == BACKUP_CATEGORY) {
             getCategories.await()
@@ -161,7 +161,7 @@ class BackupManager(
         }
     }
 
-    private suspend fun backupMangas(mangas: List<Manga>, flags: Int): List<BackupManga> {
+    suspend fun backupMangas(mangas: List<Manga>, flags: Int): List<BackupManga> {
         return mangas.map {
             backupManga(it, flags)
         }
@@ -449,22 +449,25 @@ class BackupManager(
         val dbChapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(manga.id!!) }
 
         val processed = chapters.map { chapter ->
-            var chapter = chapter
             val dbChapter = dbChapters.find { it.url == chapter.url }
+            var updatedChapter = chapter
             if (dbChapter != null) {
-                chapter = chapter.copy(id = dbChapter._id)
-                chapter = chapter.copyFrom(dbChapter)
-                if (dbChapter.read && !chapter.read) {
-                    chapter = chapter.copy(read = dbChapter.read, lastPageRead = dbChapter.last_page_read)
-                } else if (chapter.lastPageRead == 0L && dbChapter.last_page_read != 0L) {
-                    chapter = chapter.copy(lastPageRead = dbChapter.last_page_read)
+                updatedChapter = updatedChapter.copy(id = dbChapter._id)
+                updatedChapter = updatedChapter.copyFrom(dbChapter)
+                if (dbChapter.read != chapter.read) {
+                    updatedChapter = updatedChapter.copy(
+                        read = chapter.read,
+                        lastPageRead = chapter.lastPageRead,
+                    )
+                } else if (updatedChapter.lastPageRead == 0L && dbChapter.last_page_read != 0L) {
+                    updatedChapter = updatedChapter.copy(lastPageRead = dbChapter.last_page_read)
                 }
-                if (!chapter.bookmark && dbChapter.bookmark) {
-                    chapter = chapter.copy(bookmark = dbChapter.bookmark)
+                if (!updatedChapter.bookmark && dbChapter.bookmark) {
+                    updatedChapter = updatedChapter.copy(bookmark = dbChapter.bookmark)
                 }
             }
 
-            chapter.copy(mangaId = manga.id ?: -1)
+            updatedChapter.copy(mangaId = manga.id ?: -1)
         }
 
         val newChapters = processed.groupBy { it.id > 0 }

@@ -36,12 +36,12 @@ class BackupRestorer(
 
     private val errors = mutableListOf<Pair<Date, String>>()
 
-    suspend fun restoreBackup(uri: Uri): Boolean {
+    suspend fun restoreBackup(uri: Uri, sync: Boolean): Boolean {
         val startTime = System.currentTimeMillis()
         restoreProgress = 0
         errors.clear()
 
-        if (!performRestore(uri)) {
+        if (!performRestore(uri, sync)) {
             return false
         }
 
@@ -74,8 +74,12 @@ class BackupRestorer(
     }
 
     @Suppress("BlockingMethodInNonBlockingContext")
-    private suspend fun performRestore(uri: Uri): Boolean {
-        val backup = BackupUtil.decodeBackup(context, uri)
+    private suspend fun performRestore(uri: Uri, sync: Boolean): Boolean {
+        val backup = BackupHolder.backup ?: if (sync) {
+            throw IllegalStateException("syncBackup cannot be null when sync is true")
+        } else {
+            BackupUtil.decodeBackup(context, uri)
+        }
 
         restoreAmount = backup.backupManga.size + 1 // +1 for categories
 

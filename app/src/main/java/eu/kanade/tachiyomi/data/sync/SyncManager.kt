@@ -87,8 +87,6 @@ class SyncManager(
             backupManager.backupExtensionInfo(databaseManga),
         )
 
-        Log.d("syncData", "backup: $backup")
-
         when (val syncService = SyncService.fromInt(syncPreferences.syncService().get())) {
             SyncService.GOOGLE_DRIVE -> {
                 syncDataWithServer(

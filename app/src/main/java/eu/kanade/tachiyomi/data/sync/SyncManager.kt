@@ -158,16 +158,12 @@ class SyncManager(
         // Handle sync based on the selected service
         when (syncService) {
             SyncService.GOOGLE_DRIVE -> {
-                val googleDriveSync = GoogleDriveSync(context)
-                val syncWithGdrive = googleDriveSync.uploadToGoogleDrive(jsonData)
-                if (syncWithGdrive != null) {
-                    sendSyncData(
-                        url = "",
-                        apiKey = "",
-                        jsonData = syncWithGdrive,
-                        storageType = "GoogleDrive",
-                    )
-                }
+                sendSyncData(
+                    url = "",
+                    apiKey = "",
+                    jsonData = jsonData,
+                    storageType = "GoogleDrive",
+                )
             }
 
             SyncService.SELF_HOSTED -> {

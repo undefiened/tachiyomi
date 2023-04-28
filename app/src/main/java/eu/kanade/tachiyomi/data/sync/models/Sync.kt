@@ -7,7 +7,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class SyncStatus(
     @SerialName("last_synced") val lastSynced: String? = null,
-    @SerialName("last_synced_epoch") val lastSyncedEpoch: Long? = null,
     val status: String? = null,
 )
 

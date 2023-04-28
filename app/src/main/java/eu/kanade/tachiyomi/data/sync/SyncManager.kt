@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.data.sync
 
 import android.content.Context
-import android.util.Log
 import androidx.core.net.toUri
 import eu.kanade.tachiyomi.data.backup.BackupConst.BACKUP_ALL
 import eu.kanade.tachiyomi.data.backup.BackupHolder
@@ -234,10 +233,9 @@ class SyncManager(
                 if (response.isSuccessful) {
                     val syncDataResponse: SData = json.decodeFromString(responseBody)
 
-                    // TODO: BackupRestoreJob here after getting the response from the server (also fix the server)
-                    syncDataResponse.sync?.lastSyncedEpoch?.let {
-                        Instant.ofEpochMilli(it)
-                    }?.let { syncPreferences.syncLastSync().set(it) }
+                    val backup = decodeSyncBackup(responseBody)
+                    BackupHolder.backup = backup
+                    BackupRestoreJob.start(context, "".toUri(), true)
                     syncPreferences.syncLastSync().set(Instant.now())
 
                     // If the device ID is 0 and not equal to the server device ID (this happens when the DB is fresh and the app is not), update it
@@ -249,7 +247,6 @@ class SyncManager(
 
                     logcat(
                         LogPriority.INFO,
-                        null,
                     ) { "Local data is up to date! Not syncing!" }
                 } else {
                     notifier.showSyncError("Failed to sync: error copied to clipboard")

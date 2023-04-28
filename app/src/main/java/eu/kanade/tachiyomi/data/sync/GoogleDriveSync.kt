@@ -3,6 +3,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.browser.customtabs.CustomTabsIntent
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
@@ -29,9 +30,12 @@ import tachiyomi.core.util.system.logcat
 import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.time.Instant
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 class GoogleDriveSync(private val context: Context) {
     private val syncPreferences = Injekt.get<SyncPreferences>()
@@ -183,7 +187,7 @@ class GoogleDriveSync(private val context: Context) {
     }
 
     suspend fun deleteSyncDataFromGoogleDrive(): Boolean {
-        val fileName = "tachiyomi_sync_data.json"
+        val fileName = "tachiyomi_sync_data.gz"
         val drive = googleDriveService
 
         if (drive == null) {
@@ -192,7 +196,7 @@ class GoogleDriveSync(private val context: Context) {
         }
 
         return withContext(Dispatchers.IO) {
-            val query = "mimeType='text/plain' and trashed = false and name = '$fileName'"
+            val query = "mimeType='application/gzip' and trashed = false and name = '$fileName'"
             val fileList = drive.files().list().setQ(query).execute().files
 
             if (fileList.isNullOrEmpty()) {
@@ -225,7 +229,8 @@ class GoogleDriveSync(private val context: Context) {
         val outputStream = ByteArrayOutputStream()
         drive.files().get(fileId).executeMediaAndDownloadTo(outputStream)
         return withContext(Dispatchers.IO) {
-            outputStream.toString(Charsets.UTF_8.name())
+            val gzipInputStream = GZIPInputStream(ByteArrayInputStream(outputStream.toByteArray()))
+            gzipInputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         }
     }
 
@@ -237,7 +242,7 @@ class GoogleDriveSync(private val context: Context) {
      * @return The JSON string containing the combined local and remote sync data, or null if the Google Drive service is not initialized.
      */
     suspend fun uploadToGoogleDrive(jsonData: String): String? {
-        val fileName = "tachiyomi_sync_data.json"
+        val fileName = "tachiyomi_sync_data.gz"
 
         val drive = googleDriveService
 
@@ -248,41 +253,64 @@ class GoogleDriveSync(private val context: Context) {
         }
 
         // Search for the existing file by name
-        val query = "mimeType='text/plain' and trashed = false and name = '$fileName'"
+        val query = "mimeType='application/gzip' and trashed = false and name = '$fileName'"
         val fileList = drive.files().list().setQ(query).execute().files
+        Log.d("GoogleDrive", "File list: $fileList")
 
         val combinedJsonData: String
 
-        if (fileList.isNullOrEmpty()) {
-            // If the file doesn't exist, create a new one
+        if (fileList.isEmpty()) {
+            // If the file doesn't exist, create a new file with the data
             val fileMetadata = File()
             fileMetadata.name = fileName
-            fileMetadata.mimeType = "text/plain"
+            fileMetadata.mimeType = "application/gzip"
 
-            val byteArrayContent = ByteArrayContent.fromString("text/plain", jsonData)
+            val byteArrayOutputStream = ByteArrayOutputStream()
+
+            withContext(Dispatchers.IO) {
+                val gzipOutputStream = GZIPOutputStream(byteArrayOutputStream)
+                gzipOutputStream.write(jsonData.toByteArray(Charsets.UTF_8))
+                gzipOutputStream.close()
+            }
+
+            val byteArrayContent = ByteArrayContent("application/octet-stream", byteArrayOutputStream.toByteArray())
             val uploadedFile = drive.files().create(fileMetadata, byteArrayContent)
                 .setFields("id")
                 .execute()
 
-            logcat(LogPriority.DEBUG) { "Created sync data file in Google Drive with file ID: ${uploadedFile.id}" }
-
-            // Return the original jsonData since there is no existing data to merge
             combinedJsonData = jsonData
-            return combinedJsonData
+
+            logcat(LogPriority.DEBUG) { "Created sync data file in Google Drive with file ID: ${uploadedFile.id}" }
         } else {
+            val gdriveFileId = fileList[0].id
+
             // Download the existing data from Google Drive
-            val existingData = downloadFromGoogleDrive(fileList[0].id)
+            val existingData = downloadFromGoogleDrive(gdriveFileId)
             // Merge the local and remote data
             combinedJsonData = mergeLocalAndRemoteData(jsonData, existingData)
 
-            // Update the existing file with the merged data
-            val fileId = fileList[0].id
-            val byteArrayContent = ByteArrayContent.fromString("text/plain", combinedJsonData)
-            val updatedFile = drive.files().update(fileId, null, byteArrayContent)
+            // Compress the combined JSON data using GZIP
+            val byteArrayOutputStream = ByteArrayOutputStream()
+
+            withContext(Dispatchers.IO) {
+                val gzipOutputStream = GZIPOutputStream(byteArrayOutputStream)
+                gzipOutputStream.write(combinedJsonData.toByteArray(Charsets.UTF_8))
+                gzipOutputStream.close()
+            }
+
+            // Update the file with the compressed data
+            val byteArrayContent = ByteArrayContent("application/octet-stream", byteArrayOutputStream.toByteArray())
+            drive.files().delete(gdriveFileId).execute()
+
+            val fileMetadata = File()
+            fileMetadata.name = fileName
+            fileMetadata.mimeType = "application/gzip"
+
+            val newFile = drive.files().create(fileMetadata, byteArrayContent)
                 .setFields("id")
                 .execute()
 
-            logcat(LogPriority.DEBUG) { "Updated sync data file in Google Drive with file ID: ${updatedFile.id}" }
+            logcat(LogPriority.DEBUG) { "Updated sync data file in Google Drive with file ID: ${newFile.id}" }
         }
 
         return combinedJsonData

@@ -515,7 +515,7 @@ class BackupManager(
         }
     }
 
-    private suspend fun updateManga(manga: Manga): Long {
+    suspend fun updateManga(manga: Manga): Long {
         handler.await(true) {
             mangasQueries.update(
                 source = manga.source,

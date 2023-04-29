@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.data.backup.BackupHolder
 import eu.kanade.tachiyomi.data.backup.BackupManager
 import eu.kanade.tachiyomi.data.backup.BackupRestoreJob
 import eu.kanade.tachiyomi.data.backup.models.Backup
+import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncDevice
 import eu.kanade.tachiyomi.data.sync.models.SyncStatus
@@ -24,6 +25,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import tachiyomi.core.util.system.logcat
 import tachiyomi.data.DatabaseHandler
 import tachiyomi.data.manga.mangaMapper
+import tachiyomi.domain.manga.interactor.GetFavorites
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
@@ -44,6 +46,7 @@ class SyncManager(
         encodeDefaults = true
         ignoreUnknownKeys = true
     },
+    private val getFavorites: GetFavorites = Injekt.get(),
 
 ) {
     private val backupManager: BackupManager = BackupManager(context)
@@ -76,9 +79,8 @@ class SyncManager(
      */
     suspend fun syncData() {
         val databaseManga = getAllMangaFromDB()
-
+        val databaseMangaFavorites = getFavorites.await()
         logcat(LogPriority.DEBUG) { "Mangas to sync: $databaseManga" }
-
         val backup = Backup(
             backupManager.backupMangas(databaseManga, BACKUP_ALL),
             backupManager.backupCategories(BACKUP_ALL),
@@ -202,7 +204,9 @@ class SyncManager(
             val combinedJsonData = googleDriveSync.uploadToGoogleDrive(jsonData)
             if (combinedJsonData != null) {
                 val backup = decodeSyncBackup(combinedJsonData)
-                BackupHolder.backup = backup
+                val (filteredFavorites, nonFavorites) = filterFavoritesAndNonFavorites(backup)
+                updateNonFavorites(nonFavorites)
+                BackupHolder.backup = backup.copy(backupManga = filteredFavorites)
                 BackupRestoreJob.start(context, "".toUri(), true)
                 syncPreferences.syncLastSync().set(Instant.now())
             }
@@ -230,7 +234,9 @@ class SyncManager(
                     val syncDataResponse: SData = json.decodeFromString(responseBody)
 
                     val backup = decodeSyncBackup(responseBody)
-                    BackupHolder.backup = backup
+                    val (filteredFavorites, nonFavorites) = filterFavoritesAndNonFavorites(backup)
+                    updateNonFavorites(nonFavorites)
+                    BackupHolder.backup = backup.copy(backupManga = filteredFavorites)
                     BackupRestoreJob.start(context, "".toUri(), true)
                     syncPreferences.syncLastSync().set(Instant.now())
 
@@ -271,5 +277,26 @@ class SyncManager(
      */
     private suspend fun getAllMangaFromDB(): List<Manga> {
         return handler.awaitList { mangasQueries.getAllManga(mangaMapper) }
+    }
+
+    private suspend fun filterFavoritesAndNonFavorites(backup: Backup): Pair<List<BackupManga>, List<BackupManga>> {
+        val favorites = backup.backupManga.filter { manga -> manga.favorite }
+        val nonFavorites = backup.backupManga.filter { manga -> !manga.favorite }
+
+        return Pair(favorites, nonFavorites)
+    }
+
+    private suspend fun updateNonFavorites(nonFavorites: List<BackupManga>) {
+        val localMangaList = getAllMangaFromDB()
+        val localMangaMap = localMangaList.associateBy { it.url }
+
+        nonFavorites.forEach { nonFavorite ->
+            localMangaMap[nonFavorite.url]?.let { localManga ->
+                if (localManga.favorite != nonFavorite.favorite) {
+                    val updatedManga = localManga.copy(favorite = nonFavorite.favorite)
+                    backupManager.updateManga(updatedManga)
+                }
+            }
+        }
     }
 }

@@ -81,7 +81,7 @@ class SyncManager(
      */
     suspend fun syncData() {
         val databaseManga = getAllMangaFromDB()
-        val databaseMangaFavorites = getFavorites.await()
+
         logcat(LogPriority.DEBUG) { "Mangas to sync: $databaseManga" }
         val backup = Backup(
             backupManager.backupMangas(databaseManga, BACKUP_ALL),

@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.data.backup.BackupHolder
 import eu.kanade.tachiyomi.data.backup.BackupManager
 import eu.kanade.tachiyomi.data.backup.BackupRestoreJob
 import eu.kanade.tachiyomi.data.backup.models.Backup
+import eu.kanade.tachiyomi.data.backup.models.BackupChapter
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncDevice
@@ -23,6 +24,7 @@ import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.gzip
 import okhttp3.RequestBody.Companion.toRequestBody
 import tachiyomi.core.util.system.logcat
+import tachiyomi.data.Chapters
 import tachiyomi.data.DatabaseHandler
 import tachiyomi.data.manga.mangaMapper
 import tachiyomi.domain.manga.interactor.GetFavorites
@@ -279,13 +281,90 @@ class SyncManager(
         return handler.awaitList { mangasQueries.getAllManga(mangaMapper) }
     }
 
+    /**
+     * Compares two Manga objects (one from the local database and one from the backup) to check if they are different.
+     * @param localManga the Manga object from the local database.
+     * @param remoteManga the BackupManga object from the backup.
+     * @return true if the Manga objects are different, otherwise false.
+     */
+    private suspend fun isMangaDifferent(localManga: Manga, remoteManga: BackupManga): Boolean {
+        val localChapters = handler.await { chaptersQueries.getChaptersByMangaId(localManga.id).executeAsList() }
+
+        return localManga.source != remoteManga.source ||
+            localManga.url != remoteManga.url ||
+            localManga.title != remoteManga.title ||
+            localManga.artist != remoteManga.artist ||
+            localManga.author != remoteManga.author ||
+            localManga.description != remoteManga.description ||
+            localManga.genre != remoteManga.genre ||
+            localManga.status.toInt() != remoteManga.status ||
+            localManga.thumbnailUrl != remoteManga.thumbnailUrl ||
+            localManga.dateAdded != remoteManga.dateAdded ||
+            localManga.chapterFlags.toInt() != remoteManga.chapterFlags ||
+            localManga.favorite != remoteManga.favorite ||
+            localManga.viewerFlags.toInt() != remoteManga.viewer_flags ||
+            localManga.updateStrategy != remoteManga.updateStrategy ||
+            areChaptersDifferent(localChapters, remoteManga.chapters)
+    }
+
+    /**
+     * Compares two lists of chapters (one from the local database and one from the backup) to check if they are different.
+     * @param localChapters the list of chapters from the local database.
+     * @param remoteChapters the list of BackupChapter objects from the backup.
+     * @return true if the lists of chapters are different, otherwise false.
+     */
+    private fun areChaptersDifferent(localChapters: List<Chapters>, remoteChapters: List<BackupChapter>): Boolean {
+        if (localChapters.size != remoteChapters.size) {
+            return true
+        }
+
+        val localChapterMap = localChapters.associateBy { it.url }
+
+        return remoteChapters.any { remoteChapter ->
+            localChapterMap[remoteChapter.url]?.let { localChapter ->
+                localChapter.name != remoteChapter.name ||
+                    localChapter.scanlator != remoteChapter.scanlator ||
+                    localChapter.read != remoteChapter.read ||
+                    localChapter.bookmark != remoteChapter.bookmark ||
+                    localChapter.last_page_read != remoteChapter.lastPageRead ||
+                    localChapter.date_fetch != remoteChapter.dateFetch ||
+                    localChapter.date_upload != remoteChapter.dateUpload ||
+                    localChapter.chapter_number != remoteChapter.chapterNumber ||
+                    localChapter.source_order != remoteChapter.sourceOrder
+            } ?: true
+        }
+    }
+
+    /**
+     * Filters the favorite and non-favorite manga from the backup and checks if the favorite manga is different from the local database.
+     * @param backup the Backup object containing the backup data.
+     * @return a Pair of lists, where the first list contains different favorite manga and the second list contains non-favorite manga.
+     */
     private suspend fun filterFavoritesAndNonFavorites(backup: Backup): Pair<List<BackupManga>, List<BackupManga>> {
-        val favorites = backup.backupManga.filter { manga -> manga.favorite }
-        val nonFavorites = backup.backupManga.filter { manga -> !manga.favorite }
+        val databaseMangaFavorites = getFavorites.await()
+        val localMangaMap = databaseMangaFavorites.associateBy { it.url }
+        val favorites = mutableListOf<BackupManga>()
+        val nonFavorites = mutableListOf<BackupManga>()
+
+        backup.backupManga.forEach { remoteManga ->
+            if (remoteManga.favorite) {
+                localMangaMap[remoteManga.url]?.let { localManga ->
+                    if (isMangaDifferent(localManga, remoteManga)) {
+                        favorites.add(remoteManga)
+                    }
+                } ?: favorites.add(remoteManga)
+            } else {
+                nonFavorites.add(remoteManga)
+            }
+        }
 
         return Pair(favorites, nonFavorites)
     }
 
+    /**
+     * Updates the non-favorite manga in the local database with their favorite status from the backup.
+     * @param nonFavorites the list of non-favorite BackupManga objects from the backup.
+     */
     private suspend fun updateNonFavorites(nonFavorites: List<BackupManga>) {
         val localMangaList = getAllMangaFromDB()
         val localMangaMap = localMangaList.associateBy { it.url }

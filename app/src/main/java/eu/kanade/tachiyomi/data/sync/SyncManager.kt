@@ -13,7 +13,6 @@ import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.data.sync.models.SyncDevice
 import eu.kanade.tachiyomi.data.sync.models.SyncStatus
 import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.util.system.copyToClipboard
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -253,9 +252,8 @@ class SyncManager(
                         LogPriority.INFO,
                     ) { "Local data is up to date! Not syncing!" }
                 } else {
-                    notifier.showSyncError("Failed to sync: error copied to clipboard")
+                    notifier.showSyncError("Failed to sync: $responseBody")
                     responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
-                    responseBody.let { context.copyToClipboard("sync_error", it) }
                 }
             }
         }

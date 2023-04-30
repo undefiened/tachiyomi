@@ -1,6 +1,8 @@
 import kotlin.collections.List;
 import eu.kanade.tachiyomi.source.model.UpdateStrategy;
 
+ALTER TABLE mangas ADD COLUMN calculate_interval INTEGER DEFAULT 0 NOT NULL;
+
 -- Drop indices
 DROP INDEX IF EXISTS library_favorite_index;
 DROP INDEX IF EXISTS mangas_url_index;

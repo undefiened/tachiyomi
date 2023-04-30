@@ -75,8 +75,8 @@ class BackupRestorer(
 
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun performRestore(uri: Uri, sync: Boolean): Boolean {
-        val backup = BackupHolder.backup ?: if (sync) {
-            throw IllegalStateException("syncBackup cannot be null when sync is true")
+        val backup = if (sync) {
+            BackupHolder.backup ?: throw IllegalStateException("syncBackup cannot be null when sync is true")
         } else {
             BackupUtil.decodeBackup(context, uri)
         }

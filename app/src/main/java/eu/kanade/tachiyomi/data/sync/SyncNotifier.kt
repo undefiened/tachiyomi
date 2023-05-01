@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.util.system.cancelNotification
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.notify
 import uy.kohesive.injekt.injectLazy
-import java.util.concurrent.TimeUnit
 
 class SyncNotifier(private val context: Context) {
 

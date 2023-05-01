@@ -268,7 +268,7 @@ class SyncManager(
                     logcat(
                         LogPriority.DEBUG,
                     ) { "SyncYomi sync completed!" }
-                }else {
+                } else {
                     notifier.showSyncError("Failed to sync: $responseBody")
                     responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
                 }

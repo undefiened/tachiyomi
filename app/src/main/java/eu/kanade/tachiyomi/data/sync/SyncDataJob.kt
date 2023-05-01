@@ -18,6 +18,7 @@ import tachiyomi.domain.sync.SyncPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 class SyncDataJob(private val context: Context, workerParams: WorkerParameters) :
     CoroutineWorker(context, workerParams) {
@@ -63,6 +64,11 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
             val syncPreferences = Injekt.get<SyncPreferences>()
             val interval = prefInterval ?: syncPreferences.syncInterval().get()
             if (interval > 0) {
+                // Generate a random delay in minutes (e.g., between 0 and 15 minutes) to avoid conflicts.
+                val randomDelay = Random.nextInt(0, 16)
+
+                val randomDelayMillis = TimeUnit.MINUTES.toMillis(randomDelay.toLong())
+
                 val request = PeriodicWorkRequestBuilder<SyncDataJob>(
                     interval.toLong(),
                     TimeUnit.MINUTES,
@@ -70,6 +76,7 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
                     TimeUnit.MINUTES,
                 )
                     .addTag(TAG_AUTO)
+                    .setInitialDelay(randomDelayMillis, TimeUnit.MILLISECONDS)
                     .build()
 
                 context.workManager.enqueueUniquePeriodicWork(TAG_AUTO, ExistingPeriodicWorkPolicy.UPDATE, request)

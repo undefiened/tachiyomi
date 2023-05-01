@@ -69,23 +69,4 @@ class SyncNotifier(private val context: Context) {
             show(Notifications.ID_SYNC_ERROR)
         }
     }
-
-    fun showSyncComplete(time: Long) {
-        context.cancelNotification(Notifications.ID_SYNC_PROGRESS)
-
-        val timeString = context.getString(
-            R.string.restore_duration,
-            TimeUnit.MILLISECONDS.toMinutes(time),
-            TimeUnit.MILLISECONDS.toSeconds(time) - TimeUnit.MINUTES.toSeconds(
-                TimeUnit.MILLISECONDS.toMinutes(time),
-            ),
-        )
-
-        with(completeNotificationBuilder) {
-            setContentTitle(context.getString(R.string.sync_complete))
-            setContentText(context.getString(R.string.sync_completed_message, timeString))
-
-            show(Notifications.ID_SYNC_COMPLETE)
-        }
-    }
 }

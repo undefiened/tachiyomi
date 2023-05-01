@@ -3,6 +3,13 @@ package eu.kanade.presentation.more.settings.screen
 import android.app.Activity
 import android.text.format.DateUtils
 import androidx.annotation.StringRes
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,15 +61,21 @@ object SettingsSyncScreen : SearchableSettings {
 
     @Composable
     private fun getSyncServicePreferences(syncPreferences: SyncPreferences, syncService: Int): List<Preference> {
-        return when (syncService) {
-            1 -> getGoogleDrivePreferences(syncPreferences)
+        val servicePreferences = when (syncService) {
+            1 -> getGoogleDrivePreferences()
             2 -> getSelfHostPreferences(syncPreferences)
             else -> emptyList()
+        }
+
+        return if (syncService != 0) {
+            servicePreferences + getSyncNowPref() + getAutomaticSyncGroup(syncPreferences)
+        } else {
+            servicePreferences
         }
     }
 
     @Composable
-    private fun getGoogleDrivePreferences(syncPreferences: SyncPreferences): List<Preference> {
+    private fun getGoogleDrivePreferences(): List<Preference> {
         val context = LocalContext.current
         val googleDriveSync = remember { Injekt.get<GoogleDriveSync>() }
         val oAuthCBServer = Injekt.get<OAuthCallbackServer>()
@@ -70,6 +83,7 @@ object SettingsSyncScreen : SearchableSettings {
         return listOf(
             Preference.PreferenceItem.TextPreference(
                 title = stringResource(R.string.pref_google_drive_sign_in),
+                icon = Icons.Outlined.AccountCircle,
                 onClick = {
                     val oAuthCallbackServer = googleDriveSync.getSignInIntent { authorizationCode ->
                         googleDriveSync.handleAuthorizationCode(
@@ -89,7 +103,6 @@ object SettingsSyncScreen : SearchableSettings {
                 },
             ),
             getGoogleDrivePurge(),
-            getSyncNowPref(syncPreferences = syncPreferences),
         )
     }
 
@@ -99,19 +112,21 @@ object SettingsSyncScreen : SearchableSettings {
             Preference.PreferenceItem.EditTextPreference(
                 title = stringResource(R.string.pref_sync_device_name),
                 subtitle = stringResource(R.string.pref_sync_device_name_summ),
+                icon = Icons.Outlined.Devices,
                 pref = syncPreferences.deviceName(),
             ),
             Preference.PreferenceItem.EditTextPreference(
                 title = stringResource(R.string.pref_sync_host),
                 subtitle = stringResource(R.string.pref_sync_host_summ),
+                icon = Icons.Outlined.Cloud,
                 pref = syncPreferences.syncHost(),
             ),
             Preference.PreferenceItem.EditTextPreference(
                 title = stringResource(R.string.pref_sync_api_key),
                 subtitle = stringResource(R.string.pref_sync_api_key_summ),
+                icon = Icons.Outlined.VpnKey,
                 pref = syncPreferences.syncAPIKey(),
             ),
-            getSyncNowPref(syncPreferences = syncPreferences),
         )
     }
 
@@ -142,16 +157,15 @@ object SettingsSyncScreen : SearchableSettings {
         return Preference.PreferenceItem.TextPreference(
             title = stringResource(R.string.pref_google_drive_purge_sync_data),
             onClick = { showPurgeDialog.value = true },
+            icon = Icons.Outlined.Delete,
         )
     }
 
     @Composable
-    private fun getSyncNowPref(syncPreferences: SyncPreferences): Preference.PreferenceGroup {
+    private fun getSyncNowPref(): Preference.PreferenceGroup {
         val scope = rememberCoroutineScope()
         val showDialog = remember { mutableStateOf(false) }
         val context = LocalContext.current
-        val lastSync by syncPreferences.syncLastSync().collectAsState()
-        val formattedLastSync = DateUtils.getRelativeTimeSpanString(lastSync.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
 
         if (showDialog.value) {
             SyncConfirmationDialog(
@@ -177,8 +191,42 @@ object SettingsSyncScreen : SearchableSettings {
                     onClick = {
                         showDialog.value = true
                     },
+                    icon = Icons.Outlined.Sync,
                 ),
-                Preference.PreferenceItem.InfoPreference("Last sync: $formattedLastSync"),
+            ),
+        )
+    }
+
+    @Composable
+    private fun getAutomaticSyncGroup(syncPreferences: SyncPreferences): Preference.PreferenceGroup {
+        val context = LocalContext.current
+        val syncIntervalPref = syncPreferences.syncInterval()
+        val lastSync by syncPreferences.syncLastSync().collectAsState()
+        val formattedLastSync = DateUtils.getRelativeTimeSpanString(lastSync.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
+
+        return Preference.PreferenceGroup(
+            title = stringResource(R.string.pref_sync_service_category),
+            preferenceItems = listOf(
+                Preference.PreferenceItem.ListPreference(
+                    pref = syncIntervalPref,
+                    title = stringResource(R.string.pref_sync_interval),
+                    entries = mapOf(
+                        0 to stringResource(R.string.off),
+                        30 to stringResource(R.string.update_30min),
+                        60 to stringResource(R.string.update_1hour),
+                        180 to stringResource(R.string.update_3hour),
+                        360 to stringResource(R.string.update_6hour),
+                        720 to stringResource(R.string.update_12hour),
+                        1440 to stringResource(R.string.update_24hour),
+                        2880 to stringResource(R.string.update_48hour),
+                        10080 to stringResource(R.string.update_weekly),
+                    ),
+                    onValueChanged = {
+                        SyncDataJob.setupTask(context, it)
+                        true
+                    },
+                ),
+                Preference.PreferenceItem.InfoPreference(stringResource(R.string.last_synchronization) + ": " + formattedLastSync),
             ),
         )
     }

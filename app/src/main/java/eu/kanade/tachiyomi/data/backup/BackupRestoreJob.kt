@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
+import eu.kanade.tachiyomi.data.sync.SyncHolder
 import eu.kanade.tachiyomi.util.system.cancelNotification
 import eu.kanade.tachiyomi.util.system.isRunning
 import eu.kanade.tachiyomi.util.system.workManager
@@ -39,7 +40,7 @@ class BackupRestoreJob(private val context: Context, workerParams: WorkerParamet
             val restorer = BackupRestorer(context, notifier)
             if (useBackupHolder) {
                 restorer.restoreBackup(uri, sync)
-                BackupHolder.backup = null
+                SyncHolder.backup = null
             } else {
                 restorer.restoreBackup(uri, sync)
             }

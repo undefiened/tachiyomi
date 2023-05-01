@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.data.sync
 import android.content.Context
 import androidx.core.net.toUri
 import eu.kanade.tachiyomi.data.backup.BackupConst.BACKUP_ALL
-import eu.kanade.tachiyomi.data.backup.BackupHolder
 import eu.kanade.tachiyomi.data.backup.BackupManager
 import eu.kanade.tachiyomi.data.backup.BackupRestoreJob
 import eu.kanade.tachiyomi.data.backup.models.Backup
@@ -207,7 +206,7 @@ class SyncManager(
                 val backup = decodeSyncBackup(combinedJsonData)
                 val (filteredFavorites, nonFavorites) = filterFavoritesAndNonFavorites(backup)
                 updateNonFavorites(nonFavorites)
-                BackupHolder.backup = backup.copy(backupManga = filteredFavorites)
+                SyncHolder.backup = backup.copy(backupManga = filteredFavorites)
                 BackupRestoreJob.start(context, "".toUri(), true)
                 syncPreferences.syncLastSync().set(Instant.now())
             }
@@ -237,7 +236,7 @@ class SyncManager(
                     val backup = decodeSyncBackup(responseBody)
                     val (filteredFavorites, nonFavorites) = filterFavoritesAndNonFavorites(backup)
                     updateNonFavorites(nonFavorites)
-                    BackupHolder.backup = backup.copy(backupManga = filteredFavorites)
+                    SyncHolder.backup = backup.copy(backupManga = filteredFavorites)
                     BackupRestoreJob.start(context, "".toUri(), true)
                     syncPreferences.syncLastSync().set(Instant.now())
 

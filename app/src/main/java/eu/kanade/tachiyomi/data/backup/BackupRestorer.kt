@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupHistory
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
+import eu.kanade.tachiyomi.data.sync.SyncHolder
 import eu.kanade.tachiyomi.util.BackupUtil
 import eu.kanade.tachiyomi.util.system.createFileInCacheDir
 import kotlinx.coroutines.coroutineScope
@@ -50,7 +51,11 @@ class BackupRestorer(
 
         val logFile = writeErrorLog()
 
-        notifier.showRestoreComplete(time, errors.size, logFile.parent, logFile.name)
+        if (sync) {
+            notifier.showRestoreComplete(time, errors.size, logFile.parent, logFile.name, contentTitle = context.getString(R.string.sync_complete))
+        } else {
+            notifier.showRestoreComplete(time, errors.size, logFile.parent, logFile.name)
+        }
         return true
     }
 
@@ -76,7 +81,7 @@ class BackupRestorer(
     @Suppress("BlockingMethodInNonBlockingContext")
     private suspend fun performRestore(uri: Uri, sync: Boolean): Boolean {
         val backup = if (sync) {
-            BackupHolder.backup ?: throw IllegalStateException("syncBackup cannot be null when sync is true")
+            SyncHolder.backup ?: throw IllegalStateException("syncBackup cannot be null when sync is true")
         } else {
             BackupUtil.decodeBackup(context, uri)
         }
@@ -99,7 +104,7 @@ class BackupRestorer(
                     return@coroutineScope false
                 }
 
-                restoreManga(it, backup.backupCategories)
+                restoreManga(it, backup.backupCategories, sync)
             }
             // TODO: optionally trigger online library + tracker update
             true
@@ -110,10 +115,10 @@ class BackupRestorer(
         backupManager.restoreCategories(backupCategories)
 
         restoreProgress += 1
-        showRestoreProgress(restoreProgress, restoreAmount, context.getString(R.string.categories))
+        showRestoreProgress(restoreProgress, restoreAmount, context.getString(R.string.categories), context.getString(R.string.restoring_backup))
     }
 
-    private suspend fun restoreManga(backupManga: BackupManga, backupCategories: List<BackupCategory>) {
+    private suspend fun restoreManga(backupManga: BackupManga, backupCategories: List<BackupCategory>, sync: Boolean) {
         val manga = backupManga.getMangaImpl()
         val chapters = backupManga.getChaptersImpl()
         val categories = backupManga.categories.map { it.toInt() }
@@ -139,7 +144,11 @@ class BackupRestorer(
         }
 
         restoreProgress += 1
-        showRestoreProgress(restoreProgress, restoreAmount, manga.title)
+        if (sync) {
+            showRestoreProgress(restoreProgress, restoreAmount, manga.title, context.getString(R.string.syncing_data))
+        } else {
+            showRestoreProgress(restoreProgress, restoreAmount, manga.title, context.getString(R.string.restoring_backup))
+        }
     }
 
     /**
@@ -187,7 +196,7 @@ class BackupRestorer(
      * @param amount total restoreAmount of manga
      * @param title title of restored manga
      */
-    private fun showRestoreProgress(progress: Int, amount: Int, title: String) {
-        notifier.showRestoreProgress(title, progress, amount)
+    private fun showRestoreProgress(progress: Int, amount: Int, title: String, contentTitle: String) {
+        notifier.showRestoreProgress(title, contentTitle, progress, amount)
     }
 }

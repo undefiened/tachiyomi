@@ -64,18 +64,13 @@ class SyncManager(
     }
 
     /**
-     * Syncs data with the remote server.
+     * Syncs data with the remote server or Google Drive.
      *
-     * This function retrieves local data (favorites, manga, extensions, and categories),
-     * then sends a request to the remote server to synchronize the data.
-     * The local data is prepared by calling functions like `mangaList()`,
-     * `getExtensionInfo()`, and `getCategories()`.
-     * The server URL and API key are read from sync preferences.
-     * The data is sent to the server by calling `syncDataWithServer()`.
-     *
-     * This function should be called when you want to synchronize local library
-     * data with a remote server. It is designed to be used with a coroutine
-     * as it is marked as a suspend function.
+     * This function retrieves local data (favorites, manga, extensions, and categories)
+     * from the database using the BackupManager, then synchronizes the data with the remote
+     * server or uploads the data to Google Drive.
+     * The server URL, API key, or Google Drive are determined based on the sync preferences.
+     * The data is sent to the server or uploaded to Google Drive by calling `sendSyncData()`.
      */
     suspend fun syncData() {
         val databaseManga = getAllMangaFromDB()
@@ -188,6 +183,15 @@ class SyncManager(
      * The JSON data is sent in the request body, and the API key is added as a header for server requests.
      * After sending the data, the function updates the local data if required.
      *
+     * If the storageType is "GoogleDrive", the function uploads the JSON data to Google Drive using the GoogleDriveSync class.
+     * If the upload is successful, the function decodes the combined JSON data and updates the local data with the new backup.
+     * The sync last sync preference is then updated with the current time.
+     *
+     * If the storageType is null (indicating a server sync), the function sends an HTTP POST request to the server with the given URL and API key.
+     * The JSON data is sent as a compressed Gzip in the request body, and the API key is added as a header.
+     * If the request is successful, the function decodes the sync data, updates the local data with the new backup, and updates the sync last sync preference with the current time.
+     * If the device ID is 0 or different from the server device ID, the function also updates the local device ID preference.
+     *
      * @param url The server URL to send the sync data to.
      * @param apiKey The API key for authentication.
      * @param jsonData The JSON string containing the sync data.
@@ -200,6 +204,9 @@ class SyncManager(
         storageType: String? = null,
     ) {
         if (storageType == "GoogleDrive") {
+            logcat(
+                LogPriority.DEBUG,
+            ) { "GoogleDrive sync started!" }
             val googleDriveSync = GoogleDriveSync(context)
             val combinedJsonData = googleDriveSync.uploadToGoogleDrive(jsonData)
             if (combinedJsonData != null) {
@@ -209,8 +216,19 @@ class SyncManager(
                 SyncHolder.backup = backup.copy(backupManga = filteredFavorites)
                 BackupRestoreJob.start(context, "".toUri(), true)
                 syncPreferences.syncLastSync().set(Instant.now())
+                logcat(
+                    LogPriority.DEBUG,
+                ) { "GoogleDrive sync completed!" }
+                return
             }
+            logcat(
+                LogPriority.DEBUG,
+            ) { "GoogleDrive sync failed!" }
         } else {
+            logcat(
+                LogPriority.DEBUG,
+            ) { "SyncYomi sync started!" }
+
             val client = OkHttpClient()
             val mediaType = "application/gzip".toMediaTypeOrNull()
             val body = jsonData.toRequestBody(mediaType).gzip()
@@ -248,9 +266,9 @@ class SyncManager(
                     }
 
                     logcat(
-                        LogPriority.INFO,
-                    ) { "Local data is up to date! Not syncing!" }
-                } else {
+                        LogPriority.DEBUG,
+                    ) { "SyncYomi sync completed!" }
+                }else {
                     notifier.showSyncError("Failed to sync: $responseBody")
                     responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
                 }

@@ -65,7 +65,7 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
             if (interval > 0) {
                 val request = PeriodicWorkRequestBuilder<SyncDataJob>(
                     interval.toLong(),
-                    TimeUnit.HOURS,
+                    TimeUnit.MINUTES,
                     10,
                     TimeUnit.MINUTES,
                 )

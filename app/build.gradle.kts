@@ -259,13 +259,10 @@ dependencies {
     // debugImplementation(libs.leakcanary.android)
     implementation(libs.leakcanary.plumber)
 
-    implementation(libs.google.api.client.android)
     implementation(libs.google.api.services.drive)
     implementation(libs.google.api.client.oauth)
     implementation(libs.google.api.client.oauth.jetty)
     implementation(libs.browser)
-
-    implementation(libs.gson)
 }
 
 androidComponents {

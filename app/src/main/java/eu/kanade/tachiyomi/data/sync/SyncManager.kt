@@ -25,6 +25,7 @@ import tachiyomi.core.util.system.logcat
 import tachiyomi.data.Chapters
 import tachiyomi.data.DatabaseHandler
 import tachiyomi.data.manga.mangaMapper
+import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.manga.interactor.GetFavorites
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.sync.SyncPreferences
@@ -47,6 +48,7 @@ class SyncManager(
         ignoreUnknownKeys = true
     },
     private val getFavorites: GetFavorites = Injekt.get(),
+    private val getCategories: GetCategories = Injekt.get(),
 
 ) {
     private val backupManager: BackupManager = BackupManager(context)
@@ -304,6 +306,7 @@ class SyncManager(
      */
     private suspend fun isMangaDifferent(localManga: Manga, remoteManga: BackupManga): Boolean {
         val localChapters = handler.await { chaptersQueries.getChaptersByMangaId(localManga.id).executeAsList() }
+        val localCategories = getCategories.await(localManga.id).map { it.order }
 
         return localManga.source != remoteManga.source ||
             localManga.url != remoteManga.url ||
@@ -319,7 +322,8 @@ class SyncManager(
             localManga.favorite != remoteManga.favorite ||
             localManga.viewerFlags.toInt() != remoteManga.viewer_flags ||
             localManga.updateStrategy != remoteManga.updateStrategy ||
-            areChaptersDifferent(localChapters, remoteManga.chapters)
+            areChaptersDifferent(localChapters, remoteManga.chapters) ||
+            localCategories != remoteManga.categories
     }
 
     /**

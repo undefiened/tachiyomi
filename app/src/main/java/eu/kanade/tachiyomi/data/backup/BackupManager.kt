@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import com.hippo.unifile.UniFile
 import eu.kanade.domain.chapter.model.copyFrom
-import eu.kanade.domain.manga.model.copyFrom
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.backup.BackupConst.BACKUP_CATEGORY
 import eu.kanade.tachiyomi.data.backup.BackupConst.BACKUP_CATEGORY_MASK
@@ -70,7 +69,6 @@ class BackupManager(
      * @param uri path of Uri
      * @param isAutoBackup backup called from scheduled backup job
      */
-    @Suppress("BlockingMethodInNonBlockingContext")
     suspend fun createBackup(uri: Uri, flags: Int, isAutoBackup: Boolean): String {
         if (!context.hasPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
             throw IllegalStateException(context.getString(R.string.missing_storage_permission))
@@ -222,10 +220,10 @@ class BackupManager(
     }
 
     internal suspend fun restoreExistingManga(manga: Manga, dbManga: Mangas): Manga {
-        var manga = manga.copy(id = dbManga._id)
-        manga = manga.copyFrom(dbManga)
-        updateManga(manga)
-        return manga
+        var updatedManga = manga.copy(id = dbManga._id)
+        updatedManga = updatedManga.copyFrom(dbManga)
+        updateManga(updatedManga)
+        return updatedManga
     }
 
     /**
@@ -298,7 +296,7 @@ class BackupManager(
                 dbCategories.firstOrNull { dbCategory ->
                     dbCategory.name == backupCategory.name
                 }?.let { dbCategory ->
-                    mangaCategoriesToUpdate.add(Pair(manga.id!!, dbCategory.id))
+                    mangaCategoriesToUpdate.add(Pair(manga.id, dbCategory.id))
                 }
             }
         }
@@ -306,7 +304,7 @@ class BackupManager(
         // Update database
         if (mangaCategoriesToUpdate.isNotEmpty()) {
             handler.await(true) {
-                mangas_categoriesQueries.deleteMangaCategoryByMangaId(manga.id!!)
+                mangas_categoriesQueries.deleteMangaCategoryByMangaId(manga.id)
                 mangaCategoriesToUpdate.forEach { (mangaId, categoryId) ->
                     mangas_categoriesQueries.insert(mangaId, categoryId)
                 }
@@ -370,37 +368,38 @@ class BackupManager(
      * @param tracks the track list to restore.
      */
     internal suspend fun restoreTracking(manga: Manga, tracks: List<tachiyomi.domain.track.model.Track>) {
-        // Fix foreign keys with the current manga id
-        val tracks = tracks.map { it.copy(mangaId = manga.id!!) }
-
         // Get tracks from database
-        val dbTracks = handler.awaitList { manga_syncQueries.getTracksByMangaId(manga.id!!) }
+        val dbTracks = handler.awaitList { manga_syncQueries.getTracksByMangaId(manga.id) }
         val toUpdate = mutableListOf<Manga_sync>()
         val toInsert = mutableListOf<tachiyomi.domain.track.model.Track>()
 
-        tracks.forEach { track ->
-            var isInDatabase = false
-            for (dbTrack in dbTracks) {
-                if (track.syncId == dbTrack.sync_id) {
-                    // The sync is already in the db, only update its fields
-                    var temp = dbTrack
-                    if (track.remoteId != dbTrack.remote_id) {
-                        temp = temp.copy(remote_id = track.remoteId)
+        tracks
+            // Fix foreign keys with the current manga id
+            .map { it.copy(mangaId = manga.id) }
+            .forEach { track ->
+                var isInDatabase = false
+                for (dbTrack in dbTracks) {
+                    if (track.syncId == dbTrack.sync_id) {
+                        // The sync is already in the db, only update its fields
+                        var temp = dbTrack
+                        if (track.remoteId != dbTrack.remote_id) {
+                            temp = temp.copy(remote_id = track.remoteId)
+                        }
+                        if (track.libraryId != dbTrack.library_id) {
+                            temp = temp.copy(library_id = track.libraryId)
+                        }
+                        temp = temp.copy(last_chapter_read = max(dbTrack.last_chapter_read, track.lastChapterRead))
+                        isInDatabase = true
+                        toUpdate.add(temp)
+                        break
                     }
-                    if (track.libraryId != dbTrack.library_id) {
-                        temp = temp.copy(library_id = track.libraryId)
-                    }
-                    temp = temp.copy(last_chapter_read = max(dbTrack.last_chapter_read, track.lastChapterRead))
-                    isInDatabase = true
-                    toUpdate.add(temp)
-                    break
+                }
+                if (!isInDatabase) {
+                    // Insert new sync. Let the db assign the id
+                    toInsert.add(track.copy(id = 0))
                 }
             }
-            if (!isInDatabase) {
-                // Insert new sync. Let the db assign the id
-                toInsert.add(track.copy(id = 0))
-            }
-        }
+
         // Update database
         if (toUpdate.isNotEmpty()) {
             handler.await(true) {
@@ -446,28 +445,25 @@ class BackupManager(
     }
 
     internal suspend fun restoreChapters(manga: Manga, chapters: List<tachiyomi.domain.chapter.model.Chapter>) {
-        val dbChapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(manga.id!!) }
+        val dbChapters = handler.awaitList { chaptersQueries.getChaptersByMangaId(manga.id) }
 
         val processed = chapters.map { chapter ->
-            val dbChapter = dbChapters.find { it.url == chapter.url }
             var updatedChapter = chapter
+            val dbChapter = dbChapters.find { it.url == updatedChapter.url }
             if (dbChapter != null) {
                 updatedChapter = updatedChapter.copy(id = dbChapter._id)
                 updatedChapter = updatedChapter.copyFrom(dbChapter)
-                if (dbChapter.read != chapter.read) {
-                    updatedChapter = updatedChapter.copy(
-                        read = chapter.read,
-                        lastPageRead = chapter.lastPageRead,
-                    )
+                if (dbChapter.read && !updatedChapter.read) {
+                    updatedChapter = updatedChapter.copy(read = chapter.read, lastPageRead = dbChapter.last_page_read)
                 } else if (updatedChapter.lastPageRead == 0L && dbChapter.last_page_read != 0L) {
                     updatedChapter = updatedChapter.copy(lastPageRead = dbChapter.last_page_read)
                 }
                 if (!updatedChapter.bookmark && dbChapter.bookmark) {
-                    updatedChapter = updatedChapter.copy(bookmark = dbChapter.bookmark)
+                    updatedChapter = updatedChapter.copy(bookmark = true)
                 }
             }
 
-            updatedChapter.copy(mangaId = manga.id ?: -1)
+            updatedChapter.copy(mangaId = manga.id)
         }
 
         val newChapters = processed.groupBy { it.id > 0 }
@@ -562,30 +558,6 @@ class BackupManager(
                     chapter.sourceOrder,
                     chapter.dateFetch,
                     chapter.dateUpload,
-                )
-            }
-        }
-    }
-
-    /**
-     * Updates a list of chapters
-     */
-    private suspend fun updateChapters(chapters: List<tachiyomi.domain.chapter.model.Chapter>) {
-        handler.await(true) {
-            chapters.forEach { chapter ->
-                chaptersQueries.update(
-                    chapter.mangaId,
-                    chapter.url,
-                    chapter.name,
-                    chapter.scanlator,
-                    chapter.read.toLong(),
-                    chapter.bookmark.toLong(),
-                    chapter.lastPageRead,
-                    chapter.chapterNumber.toDouble(),
-                    chapter.sourceOrder,
-                    chapter.dateFetch,
-                    chapter.dateUpload,
-                    chapter.id,
                 )
             }
         }

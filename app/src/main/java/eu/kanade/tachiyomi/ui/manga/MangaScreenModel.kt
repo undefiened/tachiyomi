@@ -606,6 +606,9 @@ class MangaInfoScreenModel(
         }
 
         if (!isFavorited && !successState.hasPromptedToAddBefore) {
+            updateSuccessState { state ->
+                state.copy(hasPromptedToAddBefore = true)
+            }
             coroutineScope.launch {
                 val result = snackbarHostState.showSnackbar(
                     message = context.getString(R.string.snack_add_to_library),
@@ -614,9 +617,6 @@ class MangaInfoScreenModel(
                 )
                 if (result == SnackbarResult.ActionPerformed && !isFavorited) {
                     toggleFavorite()
-                }
-                updateSuccessState { successState ->
-                    successState.copy(hasPromptedToAddBefore = true)
                 }
             }
         }

@@ -17,7 +17,6 @@ import com.google.api.client.json.jackson2.JacksonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
-import com.google.gson.Gson
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupChapter
@@ -25,6 +24,9 @@ import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.sync.models.SData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import logcat.LogPriority
 import tachiyomi.core.util.system.logcat
 import tachiyomi.domain.sync.SyncPreferences
@@ -39,7 +41,10 @@ import java.util.zip.GZIPOutputStream
 
 class GoogleDriveSync(private val context: Context) {
     private val syncPreferences = Injekt.get<SyncPreferences>()
-    private val gson = Gson()
+    private var json: Json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
 
     private var googleDriveService: Drive? = null
 
@@ -324,8 +329,8 @@ class GoogleDriveSync(private val context: Context) {
      * @return The JSON string containing the merged sync data.
      */
     private fun mergeLocalAndRemoteData(localJsonData: String, remoteJsonData: String): String {
-        val localSyncData: SData = gson.fromJson(localJsonData, SData::class.java)
-        val remoteSyncData: SData = gson.fromJson(remoteJsonData, SData::class.java)
+        val localSyncData: SData = json.decodeFromString(localJsonData)
+        val remoteSyncData: SData = json.decodeFromString(remoteJsonData)
 
         val mergedMangaList = mergeMangaLists(localSyncData.backup?.backupManga, remoteSyncData.backup?.backupManga)
         val mergedCategoriesList = mergeCategoriesLists(localSyncData.backup?.backupCategories, remoteSyncData.backup?.backupCategories)
@@ -345,7 +350,7 @@ class GoogleDriveSync(private val context: Context) {
             device = localSyncData.device, // always use the local device info
         )
 
-        return gson.toJson(mergedSyncData)
+        return json.encodeToString(mergedSyncData)
     }
 
     /**

@@ -210,6 +210,7 @@ class SyncManager(
                 LogPriority.DEBUG,
             ) { "GoogleDrive sync started!" }
             val googleDriveSync = GoogleDriveSync(context)
+            googleDriveSync.refreshToken()
             val combinedJsonData = googleDriveSync.uploadToGoogleDrive(jsonData)
             if (combinedJsonData != null) {
                 val backup = decodeSyncBackup(combinedJsonData)

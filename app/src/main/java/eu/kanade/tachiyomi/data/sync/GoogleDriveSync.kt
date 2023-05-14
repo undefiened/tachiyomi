@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.browser.customtabs.CustomTabsIntent
+import com.google.api.client.auth.oauth2.TokenResponseException
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets
@@ -34,6 +35,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStreamReader
 import java.time.Instant
 import java.util.zip.GZIPInputStream
@@ -191,6 +193,48 @@ class GoogleDriveSync(private val context: Context) {
         }
     }
 
+    suspend fun refreshToken() = withContext(Dispatchers.IO) {
+        val jsonFactory: JsonFactory = JacksonFactory.getDefaultInstance()
+        val secrets = GoogleClientSecrets.load(
+            jsonFactory,
+            InputStreamReader(context.assets.open("client_secrets.json")),
+        )
+
+        val credential = GoogleCredential.Builder()
+            .setJsonFactory(jsonFactory)
+            .setTransport(NetHttpTransport())
+            .setClientSecrets(secrets)
+            .build()
+
+        credential.refreshToken = syncPreferences.getGoogleDriveRefreshToken()
+
+        logcat(LogPriority.DEBUG) { "Refreshing access token with: ${syncPreferences.getGoogleDriveRefreshToken()}" }
+
+        try {
+            credential.refreshToken()
+            val newAccessToken = credential.accessToken
+            val oldAccessToken = syncPreferences.getGoogleDriveAccessToken()
+            // Save the new access token
+            syncPreferences.setGoogleDriveAccessToken(newAccessToken)
+            setupGoogleDriveService(newAccessToken, credential.refreshToken)
+            logcat(LogPriority.DEBUG) { "Google Access token refreshed old: $oldAccessToken new: $newAccessToken" }
+        } catch (e: TokenResponseException) {
+            if (e.details.error == "invalid_grant") {
+                // The refresh token is invalid, prompt the user to sign in again
+                logcat(LogPriority.ERROR) { "Refresh token is invalid, prompt user to sign in again" }
+                throw e.message?.let { Exception(it) } ?: Exception("Unknown error")
+            } else {
+                // Token refresh failed; handle this situation
+                logcat(LogPriority.ERROR) { "Failed to refresh access token ${e.message}" }
+                logcat(LogPriority.ERROR) { "Google Drive sync will be disabled" }
+            }
+        } catch (e: IOException) {
+            // Token refresh failed; handle this situation
+            logcat(LogPriority.ERROR) { "Failed to refresh access token ${e.message}" }
+            logcat(LogPriority.ERROR) { "Google Drive sync will be disabled" }
+        }
+    }
+
     suspend fun deleteSyncDataFromGoogleDrive(): Boolean {
         val fileName = "tachiyomi_sync_data.gz"
         val drive = googleDriveService
@@ -199,6 +243,7 @@ class GoogleDriveSync(private val context: Context) {
             logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
             return false
         }
+        refreshToken()
 
         return withContext(Dispatchers.IO) {
             val query = "mimeType='application/gzip' and trashed = false and name = '$fileName'"

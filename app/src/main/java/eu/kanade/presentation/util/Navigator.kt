@@ -29,8 +29,6 @@ interface Tab : cafe.adriel.voyager.navigator.tab.Tab {
     suspend fun onReselect(navigator: Navigator) {}
 }
 
-// TODO: this prevents crashes in nested navigators with transitions not being disposed
-// properly. Go back to using vanilla Voyager Screens once fixed upstream.
 abstract class Screen : Screen {
 
     override val key: ScreenKey = uniqueScreenKey

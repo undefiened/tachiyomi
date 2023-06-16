@@ -60,16 +60,6 @@ object Notifications {
     const val ID_RESTORE_COMPLETE = -504
 
     /**
-     * Notification channel and ids used by the sync system.
-     */
-    private const val GROUP_SYNC = "group_sync"
-    const val CHANNEL_SYNC_PROGRESS = "sync_progress_channel"
-    const val ID_SYNC_PROGRESS = -601
-    const val CHANNEL_SYNC_COMPLETE = "sync_complete_channel"
-    const val ID_SYNC_COMPLETE = -602
-    const val ID_SYNC_ERROR = -603
-
-    /**
      * Notification channel used for Incognito Mode
      */
     const val CHANNEL_INCOGNITO_MODE = "incognito_mode_channel"
@@ -113,9 +103,6 @@ object Notifications {
             listOf(
                 buildNotificationChannelGroup(GROUP_BACKUP_RESTORE) {
                     setName(context.getString(R.string.label_backup))
-                },
-                buildNotificationChannelGroup(GROUP_SYNC) {
-                    setName(context.getString(R.string.label_sync))
                 },
                 buildNotificationChannelGroup(GROUP_DOWNLOADER) {
                     setName(context.getString(R.string.download_notifier_downloader_title))
@@ -170,17 +157,6 @@ object Notifications {
                 buildNotificationChannel(CHANNEL_BACKUP_RESTORE_COMPLETE, IMPORTANCE_HIGH) {
                     setName(context.getString(R.string.channel_complete))
                     setGroup(GROUP_BACKUP_RESTORE)
-                    setShowBadge(false)
-                    setSound(null, null)
-                },
-                buildNotificationChannel(CHANNEL_SYNC_PROGRESS, IMPORTANCE_LOW) {
-                    setName(context.getString(R.string.channel_progress))
-                    setGroup(GROUP_SYNC)
-                    setShowBadge(false)
-                },
-                buildNotificationChannel(CHANNEL_SYNC_COMPLETE, IMPORTANCE_HIGH) {
-                    setName(context.getString(R.string.channel_complete))
-                    setGroup(GROUP_SYNC)
                     setShowBadge(false)
                     setSound(null, null)
                 },

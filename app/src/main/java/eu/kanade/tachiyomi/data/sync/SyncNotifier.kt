@@ -16,7 +16,7 @@ class SyncNotifier(private val context: Context) {
 
     private val preferences: SecurityPreferences by injectLazy()
 
-    private val progressNotificationBuilder = context.notificationBuilder(Notifications.CHANNEL_SYNC_PROGRESS) {
+    private val progressNotificationBuilder = context.notificationBuilder(Notifications.CHANNEL_BACKUP_RESTORE_PROGRESS) {
         setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
         setSmallIcon(R.drawable.ic_tachi)
         setAutoCancel(false)
@@ -24,7 +24,7 @@ class SyncNotifier(private val context: Context) {
         setOnlyAlertOnce(true)
     }
 
-    private val completeNotificationBuilder = context.notificationBuilder(Notifications.CHANNEL_SYNC_COMPLETE) {
+    private val completeNotificationBuilder = context.notificationBuilder(Notifications.CHANNEL_BACKUP_RESTORE_PROGRESS) {
         setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
         setSmallIcon(R.drawable.ic_tachi)
         setAutoCancel(false)
@@ -49,23 +49,23 @@ class SyncNotifier(private val context: Context) {
             addAction(
                 R.drawable.ic_close_24dp,
                 context.getString(R.string.action_cancel),
-                NotificationReceiver.cancelSyncPendingBroadcast(context, Notifications.ID_SYNC_PROGRESS),
+                NotificationReceiver.cancelSyncPendingBroadcast(context, Notifications.ID_RESTORE_PROGRESS),
             )
         }
 
-        builder.show(Notifications.ID_SYNC_PROGRESS)
+        builder.show(Notifications.ID_RESTORE_PROGRESS)
 
         return builder
     }
 
     fun showSyncError(error: String?) {
-        context.cancelNotification(Notifications.ID_SYNC_PROGRESS)
+        context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
 
         with(completeNotificationBuilder) {
             setContentTitle(context.getString(R.string.sync_error))
             setContentText(error)
 
-            show(Notifications.ID_SYNC_ERROR)
+            show(Notifications.ID_RESTORE_COMPLETE)
         }
     }
 }

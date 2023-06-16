@@ -40,13 +40,13 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
             notifier.showSyncError(e.message)
             Result.failure()
         } finally {
-            context.cancelNotification(Notifications.ID_SYNC_PROGRESS)
+            context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
         }
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         return ForegroundInfo(
-            Notifications.ID_SYNC_PROGRESS,
+            Notifications.ID_RESTORE_PROGRESS,
             notifier.showSyncProgress().build(),
         )
     }

@@ -15,7 +15,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
@@ -24,7 +23,6 @@ import android.view.View.LAYER_TYPE_HARDWARE
 import android.view.WindowManager
 import android.view.animation.Animation
 import android.view.animation.AnimationUtils
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
@@ -36,7 +34,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isVisible
-import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.lifecycleScope
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.google.android.material.internal.ToolbarUtils
@@ -69,7 +66,6 @@ import eu.kanade.tachiyomi.ui.reader.viewer.pager.R2LPagerViewer
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.preference.toggle
 import eu.kanade.tachiyomi.util.system.applySystemAnimatorScale
-import eu.kanade.tachiyomi.util.system.createReaderThemeContext
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
 import eu.kanade.tachiyomi.util.system.isNightMode
 import eu.kanade.tachiyomi.util.system.toShareIntent
@@ -290,16 +286,16 @@ class ReaderActivity : BaseActivity() {
         assistUrl?.let { outContent.webUri = it.toUri() }
     }
 
-    /**
-     * Called when the options menu of the toolbar is being created. It adds our custom menu.
-     */
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.reader, menu)
 
         val isChapterBookmarked = viewModel.getCurrentChapter()?.chapter?.bookmark ?: false
         menu.findItem(R.id.action_bookmark).isVisible = !isChapterBookmarked
         menu.findItem(R.id.action_remove_bookmark).isVisible = isChapterBookmarked
-        menu.findItem(R.id.action_open_in_web_view).isVisible = viewModel.getSource() is HttpSource
+
+        val isHttpSource = viewModel.getSource() is HttpSource
+        menu.findItem(R.id.action_open_in_web_view).isVisible = isHttpSource
+        menu.findItem(R.id.action_share).isVisible = isHttpSource
 
         return true
     }
@@ -311,7 +307,7 @@ class ReaderActivity : BaseActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.action_open_in_web_view -> {
-                openChapterInWebview()
+                openChapterInWebView()
             }
             R.id.action_bookmark -> {
                 viewModel.bookmarkCurrentChapter(true)
@@ -320,6 +316,12 @@ class ReaderActivity : BaseActivity() {
             R.id.action_remove_bookmark -> {
                 viewModel.bookmarkCurrentChapter(false)
                 invalidateOptionsMenu()
+            }
+            R.id.action_share -> {
+                assistUrl?.let {
+                    val intent = it.toUri().toShareIntent(this, type = "text/plain")
+                    startActivity(Intent.createChooser(intent, getString(R.string.action_share)))
+                }
             }
         }
         return super.onOptionsItemSelected(item)
@@ -660,25 +662,18 @@ class ReaderActivity : BaseActivity() {
 
         supportActionBar?.title = manga.title
 
-        val loadingIndicatorContext = createReaderThemeContext()
-        loadingIndicator = ReaderProgressIndicator(loadingIndicatorContext).apply {
-            updateLayoutParams<FrameLayout.LayoutParams> {
-                gravity = Gravity.CENTER
-            }
-        }
+        loadingIndicator = ReaderProgressIndicator(this)
         binding.readerContainer.addView(loadingIndicator)
 
         startPostponedEnterTransition()
     }
 
-    private fun openChapterInWebview() {
+    private fun openChapterInWebView() {
         val manga = viewModel.manga ?: return
         val source = viewModel.getSource() ?: return
-        lifecycleScope.launchIO {
-            viewModel.getChapterUrl()?.let { url ->
-                val intent = WebViewActivity.newIntent(this@ReaderActivity, url, source.id, manga.title)
-                withUIContext { startActivity(intent) }
-            }
+        assistUrl?.let {
+            val intent = WebViewActivity.newIntent(this@ReaderActivity, it, source.id, manga.title)
+            startActivity(intent)
         }
     }
 

@@ -183,6 +183,21 @@
                     android:scheme="tachiyomi" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.setting.track.GoogleDriveLoginActivity"
+            android:label="GoogleDrive"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="googledrive-auth"
+                    android:scheme="tachiyomi" />
+            </intent-filter>
+        </activity>
 
         <receiver
             android:name=".data.notification.NotificationReceiver"

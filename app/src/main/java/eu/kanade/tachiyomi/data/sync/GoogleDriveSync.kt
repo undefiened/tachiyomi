@@ -1,11 +1,9 @@
 package eu.kanade.tachiyomi.data.sync
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import android.widget.Toast
 import com.google.api.client.auth.oauth2.TokenResponseException
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
@@ -96,31 +94,20 @@ class GoogleDriveSync(private val context: Context) {
     }
 
     /**
-     * Launches a Custom Tab with the authorization URL to allow the user to sign in and grant the application permission to access their Google Drive account.
+     * Launches the user's default browser with the authorization URL to allow the user to sign in
+     * and grant the application permission to access their Google Drive account.
+     * If the user does not have a web browser installed, a toast message will be displayed.
      * Also returns an OAuthCallbackServer to listen for the authorization code.
-     * @param onCallback A callback function to listen for the authorization code.
+     *
      * @return An OAuthCallbackServer.
      */
-    fun getSignInIntent(onCallback: (String) -> Unit): OAuthCallbackServer {
-        val oAuthCallbackServer = Injekt.get<OAuthCallbackServer>().apply {
-            setOnCallbackListener(onCallback)
-        }
-
+    fun getSignInIntent(): Intent {
         val authorizationUrl = generateAuthorizationUrl()
 
-        val intent = Intent(Intent.ACTION_VIEW).apply {
+        return Intent(Intent.ACTION_VIEW).apply {
             data = Uri.parse(authorizationUrl)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-
-        try {
-            context.startActivity(intent)
-        } catch (e: ActivityNotFoundException) {
-            // Handle the exception: show a toast to inform the user
-            Toast.makeText(context, "No browser found. Please install a web browser.", Toast.LENGTH_LONG).show()
-        }
-
-        return oAuthCallbackServer
     }
 
     /**

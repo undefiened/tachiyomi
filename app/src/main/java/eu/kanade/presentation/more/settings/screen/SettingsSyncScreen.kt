@@ -1,6 +1,5 @@
 package eu.kanade.presentation.more.settings.screen
 
-import android.app.Activity
 import android.text.format.DateUtils
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
@@ -77,29 +76,17 @@ object SettingsSyncScreen : SearchableSettings {
     @Composable
     private fun getGoogleDrivePreferences(): List<Preference> {
         val context = LocalContext.current
-        val googleDriveSync = remember { Injekt.get<GoogleDriveSync>() }
-        val oAuthCBServer = Injekt.get<OAuthCallbackServer>()
+        val googleDriveSync = Injekt.get<GoogleDriveSync>()
+        val oAuthCallbackServer = Injekt.get<OAuthCallbackServer>()
 
         return listOf(
             Preference.PreferenceItem.TextPreference(
                 title = stringResource(R.string.pref_google_drive_sign_in),
                 icon = Icons.Outlined.AccountCircle,
                 onClick = {
-                    val oAuthCallbackServer = googleDriveSync.getSignInIntent { authorizationCode ->
-                        googleDriveSync.handleAuthorizationCode(
-                            authorizationCode,
-                            context as Activity,
-                            onSuccess = {
-                                context.toast(R.string.google_drive_sign_in_success)
-                                oAuthCBServer.stop()
-                            },
-                            onFailure = { message ->
-                                context.toast(message)
-                                oAuthCBServer.stop()
-                            },
-                        )
-                    }
                     oAuthCallbackServer.start()
+                    val intent = googleDriveSync.getSignInIntent()
+                    context.startActivity(intent)
                 },
             ),
             getGoogleDrivePurge(),

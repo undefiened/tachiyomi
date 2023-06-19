@@ -1,10 +1,11 @@
 package eu.kanade.tachiyomi.data.sync
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import androidx.browser.customtabs.CustomTabsIntent
+import android.widget.Toast
 import com.google.api.client.auth.oauth2.TokenResponseException
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
@@ -106,12 +107,18 @@ class GoogleDriveSync(private val context: Context) {
         }
 
         val authorizationUrl = generateAuthorizationUrl()
-        val customTabsIntent = CustomTabsIntent.Builder()
-            .setShowTitle(true)
-            .build()
 
-        customTabsIntent.intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        customTabsIntent.launchUrl(context, Uri.parse(authorizationUrl))
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(authorizationUrl)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            // Handle the exception: show a toast to inform the user
+            Toast.makeText(context, "No browser found. Please install a web browser.", Toast.LENGTH_LONG).show()
+        }
 
         return oAuthCallbackServer
     }

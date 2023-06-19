@@ -258,7 +258,6 @@ dependencies {
 
     implementation(libs.google.api.services.drive)
     implementation(libs.google.api.client.oauth)
-    implementation(libs.browser)
 }
 
 androidComponents {

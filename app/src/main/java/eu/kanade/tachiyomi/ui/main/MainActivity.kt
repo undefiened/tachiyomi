@@ -254,7 +254,7 @@ class MainActivity : BaseActivity() {
                     },
                     confirmButton = {
                         TextButton(onClick = { showChangelog = false }) {
-                            Text(text = stringResource(android.R.string.ok))
+                            Text(text = stringResource(R.string.action_ok))
                         }
                     },
                 )
@@ -262,7 +262,7 @@ class MainActivity : BaseActivity() {
         }
 
         val startTime = System.currentTimeMillis()
-        splashScreen?.setKeepVisibleCondition {
+        splashScreen?.setKeepOnScreenCondition {
             val elapsed = System.currentTimeMillis() - startTime
             elapsed <= SPLASH_MIN_DURATION || (!ready && elapsed <= SPLASH_MAX_DURATION)
         }

@@ -24,7 +24,6 @@ import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.util.collectAsState
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.sync.GoogleDriveSync
-import eu.kanade.tachiyomi.data.sync.OAuthCallbackServer
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.launch
@@ -77,14 +76,12 @@ object SettingsSyncScreen : SearchableSettings {
     private fun getGoogleDrivePreferences(): List<Preference> {
         val context = LocalContext.current
         val googleDriveSync = Injekt.get<GoogleDriveSync>()
-        val oAuthCallbackServer = Injekt.get<OAuthCallbackServer>()
 
         return listOf(
             Preference.PreferenceItem.TextPreference(
                 title = stringResource(R.string.pref_google_drive_sign_in),
                 icon = Icons.Outlined.AccountCircle,
                 onClick = {
-                    oAuthCallbackServer.start()
                     val intent = googleDriveSync.getSignInIntent()
                     context.startActivity(intent)
                 },

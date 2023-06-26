@@ -194,8 +194,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:host="googledrive-auth"
-                    android:scheme="tachiyomi" />
+                    android:scheme="eu.kanade.google.oauth" />
             </intent-filter>
         </activity>
 

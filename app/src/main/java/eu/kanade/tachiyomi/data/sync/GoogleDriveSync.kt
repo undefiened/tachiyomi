@@ -88,18 +88,16 @@ class GoogleDriveSync(private val context: Context) {
         ).setAccessType("offline").build()
 
         return flow.newAuthorizationUrl()
-            .setRedirectUri("http://127.0.0.1:53682/auth")
+            .setRedirectUri("eu.kanade.google.oauth:/oauth2redirect")
             .setApprovalPrompt("force")
             .build()
     }
 
     /**
-     * Launches the user's default browser with the authorization URL to allow the user to sign in
+     * Launches an Intent to open the user's default browser for Google Drive sign-in.
+     * The Intent carries the authorization URL, which prompts the user to sign in
      * and grant the application permission to access their Google Drive account.
-     * If the user does not have a web browser installed, a toast message will be displayed.
-     * Also returns an OAuthCallbackServer to listen for the authorization code.
-     *
-     * @return An OAuthCallbackServer.
+     * @return An Intent configured to launch a browser for Google Drive OAuth sign-in.
      */
     fun getSignInIntent(): Intent {
         val authorizationUrl = generateAuthorizationUrl()
@@ -158,10 +156,10 @@ class GoogleDriveSync(private val context: Context) {
         val tokenResponse: GoogleTokenResponse = GoogleAuthorizationCodeTokenRequest(
             NetHttpTransport(),
             jsonFactory,
-            secrets.web.clientId,
-            secrets.web.clientSecret,
+            secrets.installed.clientId,
+            secrets.installed.clientSecret,
             authorizationCode,
-            "http://127.0.0.1:53682/auth",
+            "eu.kanade.google.oauth:/oauth2redirect",
         ).setGrantType("authorization_code").execute()
 
         try {

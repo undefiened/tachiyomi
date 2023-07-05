@@ -24,6 +24,7 @@ import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.util.collectAsState
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import eu.kanade.tachiyomi.data.sync.service.GoogleDriveService
 import eu.kanade.tachiyomi.data.sync.service.GoogleDriveSyncService
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.launch
@@ -75,7 +76,7 @@ object SettingsSyncScreen : SearchableSettings {
     @Composable
     private fun getGoogleDrivePreferences(): List<Preference> {
         val context = LocalContext.current
-        val googleDriveSync = Injekt.get<GoogleDriveSyncService>()
+        val googleDriveSync = Injekt.get<GoogleDriveService>()
 
         return listOf(
             Preference.PreferenceItem.TextPreference(
@@ -119,7 +120,7 @@ object SettingsSyncScreen : SearchableSettings {
         val scope = rememberCoroutineScope()
         val showPurgeDialog = remember { mutableStateOf(false) }
         val context = LocalContext.current
-        val googleDriveSync = remember { Injekt.get<GoogleDriveSyncService>() }
+        val googleDriveSync = remember { GoogleDriveSyncService(context) }
 
         if (showPurgeDialog.value) {
             PurgeConfirmationDialog(

@@ -3,19 +3,19 @@ package eu.kanade.tachiyomi.ui.setting.track
 import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
-import eu.kanade.tachiyomi.data.sync.service.GoogleDriveSyncService
+import eu.kanade.tachiyomi.data.sync.service.GoogleDriveService
 import tachiyomi.core.util.lang.launchIO
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 class GoogleDriveLoginActivity : BaseOAuthLoginActivity() {
-    private val googleDriveSync = Injekt.get<GoogleDriveSyncService>()
+    private val googleDriveService = Injekt.get<GoogleDriveService>()
     override fun handleResult(data: Uri?) {
         val code = data?.getQueryParameter("code")
         val error = data?.getQueryParameter("error")
         if (code != null) {
             lifecycleScope.launchIO {
-                googleDriveSync.handleAuthorizationCode(
+                googleDriveService.handleAuthorizationCode(
                     code,
                     this@GoogleDriveLoginActivity,
                     onSuccess = {

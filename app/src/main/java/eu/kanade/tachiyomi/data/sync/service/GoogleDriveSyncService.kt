@@ -18,11 +18,6 @@ import com.google.api.client.json.jackson2.JacksonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
-import eu.kanade.tachiyomi.data.backup.models.Backup
-import eu.kanade.tachiyomi.data.backup.models.BackupCategory
-import eu.kanade.tachiyomi.data.backup.models.BackupChapter
-import eu.kanade.tachiyomi.data.backup.models.BackupManga
-import eu.kanade.tachiyomi.data.sync.SyncNotifier
 import eu.kanade.tachiyomi.data.sync.models.SData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,11 +32,10 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
-import java.time.Instant
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: SyncPreferences) : SyncService(context, json, syncPreferences) {
+class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: SyncPreferences) : StorageSyncService(context, json, syncPreferences) {
     constructor(context: Context) : this(
         context,
         Json {
@@ -51,34 +45,116 @@ class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: Sync
         Injekt.get<SyncPreferences>(),
     )
 
-    private var googleDriveService: Drive? = null
+    private val remoteFileName = "tachiyomi_sync_data.gz"
+
+    private val googleDriveService = GoogleDriveService(context)
+
+    override suspend fun beforeSync() = googleDriveService.refreshToken()
+
+    override suspend fun downloadSyncData(): SData? {
+        val drive = googleDriveService.googleDriveService
+
+        // Check if the Google Drive service is initialized
+        if (drive == null) {
+            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
+            return null
+        }
+
+        val fileList = getFileList(drive)
+
+        if (fileList.isEmpty()) {
+            return null
+        }
+        val gdriveFileId = fileList[0].id
+
+        val outputStream = ByteArrayOutputStream()
+        drive.files().get(gdriveFileId).executeMediaAndDownloadTo(outputStream)
+        val jsonString = withContext(Dispatchers.IO) {
+            val gzipInputStream = GZIPInputStream(ByteArrayInputStream(outputStream.toByteArray()))
+            gzipInputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }
+
+        return json.decodeFromString(SData.serializer(), jsonString)
+    }
+
+    override suspend fun uploadSyncData(syncData: SData) {
+        val jsonData = json.encodeToString(syncData)
+
+        val drive = googleDriveService.googleDriveService
+
+        // Check if the Google Drive service is initialized
+        if (drive == null) {
+            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
+            return
+        }
+
+        // delete file if exists
+        val fileList = getFileList(drive)
+        if (fileList.isNotEmpty()) {
+            drive.files().delete(fileList[0].id).execute()
+        }
+
+        val fileMetadata = File()
+        fileMetadata.name = remoteFileName
+        fileMetadata.mimeType = "application/gzip"
+
+        val byteArrayOutputStream = ByteArrayOutputStream()
+
+        withContext(Dispatchers.IO) {
+            val gzipOutputStream = GZIPOutputStream(byteArrayOutputStream)
+            gzipOutputStream.write(jsonData.toByteArray(Charsets.UTF_8))
+            gzipOutputStream.close()
+        }
+
+        val byteArrayContent = ByteArrayContent("application/octet-stream", byteArrayOutputStream.toByteArray())
+        val uploadedFile = drive.files().create(fileMetadata, byteArrayContent)
+            .setFields("id")
+            .execute()
+
+        logcat(LogPriority.DEBUG) { "Created sync data file in Google Drive with file ID: ${uploadedFile.id}" }
+    }
+
+    private fun getFileList(drive: Drive): MutableList<File> {
+        // Search for the existing file by name
+        val query = "mimeType='application/gzip' and trashed = false and name = '$remoteFileName'"
+        val fileList = drive.files().list().setQ(query).execute().files
+        Log.d("GoogleDrive", "File list: $fileList")
+
+        return fileList
+    }
+
+    suspend fun deleteSyncDataFromGoogleDrive(): Boolean {
+        val drive = googleDriveService.googleDriveService
+
+        if (drive == null) {
+            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
+            return false
+        }
+        googleDriveService.refreshToken()
+
+        return withContext(Dispatchers.IO) {
+            val query = "mimeType='application/gzip' and trashed = false and name = '$remoteFileName'"
+            val fileList = drive.files().list().setQ(query).execute().files
+
+            if (fileList.isNullOrEmpty()) {
+                logcat(LogPriority.DEBUG) { "No sync data file found in Google Drive" }
+                false
+            } else {
+                val fileId = fileList[0].id
+                drive.files().delete(fileId).execute()
+                logcat(LogPriority.DEBUG) { "Deleted sync data file in Google Drive with file ID: $fileId" }
+                true
+            }
+        }
+    }
+}
+
+class GoogleDriveService(private val context: Context) {
+    var googleDriveService: Drive? = null
+    private val syncPreferences = Injekt.get<SyncPreferences>()
 
     init {
         initGoogleDriveService()
-    }
-
-    override suspend fun doSync(syncData: SData): Backup? {
-        logcat(
-            LogPriority.DEBUG,
-        ) { "GoogleDrive sync started!" }
-
-        val jsonData = json.encodeToString(syncData)
-
-        refreshToken()
-
-        val combinedJsonData = uploadToGoogleDrive(jsonData)
-
-        if (combinedJsonData != null) {
-            logcat(
-                LogPriority.DEBUG,
-            ) { "GoogleDrive sync completed!" }
-            return decodeSyncBackup(combinedJsonData)
-        }
-
-        logcat(
-            LogPriority.DEBUG,
-        ) { "GoogleDrive sync failed!" }
-        return null
     }
 
     /**
@@ -95,6 +171,21 @@ class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: Sync
         }
 
         setupGoogleDriveService(accessToken, refreshToken)
+    }
+
+    /**
+     * Launches an Intent to open the user's default browser for Google Drive sign-in.
+     * The Intent carries the authorization URL, which prompts the user to sign in
+     * and grant the application permission to access their Google Drive account.
+     * @return An Intent configured to launch a browser for Google Drive OAuth sign-in.
+     */
+    fun getSignInIntent(): Intent {
+        val authorizationUrl = generateAuthorizationUrl()
+
+        return Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse(authorizationUrl)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
     }
 
     /**
@@ -121,19 +212,45 @@ class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: Sync
             .setApprovalPrompt("force")
             .build()
     }
+    internal suspend fun refreshToken() = withContext(Dispatchers.IO) {
+        val jsonFactory: JsonFactory = JacksonFactory.getDefaultInstance()
+        val secrets = GoogleClientSecrets.load(
+            jsonFactory,
+            InputStreamReader(context.assets.open("client_secrets.json")),
+        )
 
-    /**
-     * Launches an Intent to open the user's default browser for Google Drive sign-in.
-     * The Intent carries the authorization URL, which prompts the user to sign in
-     * and grant the application permission to access their Google Drive account.
-     * @return An Intent configured to launch a browser for Google Drive OAuth sign-in.
-     */
-    fun getSignInIntent(): Intent {
-        val authorizationUrl = generateAuthorizationUrl()
+        val credential = GoogleCredential.Builder()
+            .setJsonFactory(jsonFactory)
+            .setTransport(NetHttpTransport())
+            .setClientSecrets(secrets)
+            .build()
 
-        return Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse(authorizationUrl)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        credential.refreshToken = syncPreferences.getGoogleDriveRefreshToken()
+
+        logcat(LogPriority.DEBUG) { "Refreshing access token with: ${syncPreferences.getGoogleDriveRefreshToken()}" }
+
+        try {
+            credential.refreshToken()
+            val newAccessToken = credential.accessToken
+            val oldAccessToken = syncPreferences.getGoogleDriveAccessToken()
+            // Save the new access token
+            syncPreferences.setGoogleDriveAccessToken(newAccessToken)
+            setupGoogleDriveService(newAccessToken, credential.refreshToken)
+            logcat(LogPriority.DEBUG) { "Google Access token refreshed old: $oldAccessToken new: $newAccessToken" }
+        } catch (e: TokenResponseException) {
+            if (e.details.error == "invalid_grant") {
+                // The refresh token is invalid, prompt the user to sign in again
+                logcat(LogPriority.ERROR) { "Refresh token is invalid, prompt user to sign in again" }
+                throw e.message?.let { Exception(it) } ?: Exception("Unknown error")
+            } else {
+                // Token refresh failed; handle this situation
+                logcat(LogPriority.ERROR) { "Failed to refresh access token ${e.message}" }
+                logcat(LogPriority.ERROR) { "Google Drive sync will be disabled" }
+            }
+        } catch (e: IOException) {
+            // Token refresh failed; handle this situation
+            logcat(LogPriority.ERROR) { "Failed to refresh access token ${e.message}" }
+            logcat(LogPriority.ERROR) { "Google Drive sync will be disabled" }
         }
     }
 
@@ -211,353 +328,5 @@ class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: Sync
                 onFailure(e.localizedMessage ?: "Unknown error")
             }
         }
-    }
-
-    suspend fun refreshToken() = withContext(Dispatchers.IO) {
-        val jsonFactory: JsonFactory = JacksonFactory.getDefaultInstance()
-        val secrets = GoogleClientSecrets.load(
-            jsonFactory,
-            InputStreamReader(context.assets.open("client_secrets.json")),
-        )
-
-        val credential = GoogleCredential.Builder()
-            .setJsonFactory(jsonFactory)
-            .setTransport(NetHttpTransport())
-            .setClientSecrets(secrets)
-            .build()
-
-        credential.refreshToken = syncPreferences.getGoogleDriveRefreshToken()
-
-        logcat(LogPriority.DEBUG) { "Refreshing access token with: ${syncPreferences.getGoogleDriveRefreshToken()}" }
-
-        try {
-            credential.refreshToken()
-            val newAccessToken = credential.accessToken
-            val oldAccessToken = syncPreferences.getGoogleDriveAccessToken()
-            // Save the new access token
-            syncPreferences.setGoogleDriveAccessToken(newAccessToken)
-            setupGoogleDriveService(newAccessToken, credential.refreshToken)
-            logcat(LogPriority.DEBUG) { "Google Access token refreshed old: $oldAccessToken new: $newAccessToken" }
-        } catch (e: TokenResponseException) {
-            if (e.details.error == "invalid_grant") {
-                // The refresh token is invalid, prompt the user to sign in again
-                logcat(LogPriority.ERROR) { "Refresh token is invalid, prompt user to sign in again" }
-                throw e.message?.let { Exception(it) } ?: Exception("Unknown error")
-            } else {
-                // Token refresh failed; handle this situation
-                logcat(LogPriority.ERROR) { "Failed to refresh access token ${e.message}" }
-                logcat(LogPriority.ERROR) { "Google Drive sync will be disabled" }
-            }
-        } catch (e: IOException) {
-            // Token refresh failed; handle this situation
-            logcat(LogPriority.ERROR) { "Failed to refresh access token ${e.message}" }
-            logcat(LogPriority.ERROR) { "Google Drive sync will be disabled" }
-        }
-    }
-
-    suspend fun deleteSyncDataFromGoogleDrive(): Boolean {
-        val fileName = "tachiyomi_sync_data.gz"
-        val drive = googleDriveService
-
-        if (drive == null) {
-            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
-            return false
-        }
-        refreshToken()
-
-        return withContext(Dispatchers.IO) {
-            val query = "mimeType='application/gzip' and trashed = false and name = '$fileName'"
-            val fileList = drive.files().list().setQ(query).execute().files
-
-            if (fileList.isNullOrEmpty()) {
-                logcat(LogPriority.DEBUG) { "No sync data file found in Google Drive" }
-                false
-            } else {
-                val fileId = fileList[0].id
-                drive.files().delete(fileId).execute()
-                logcat(LogPriority.DEBUG) { "Deleted sync data file in Google Drive with file ID: $fileId" }
-                true
-            }
-        }
-    }
-
-    /**
-     * Downloads a file from Google Drive given its file ID.
-     *
-     * @param fileId The ID of the file to be downloaded from Google Drive.
-     * @return The content of the downloaded file as a string.
-     */
-    private suspend fun downloadFromGoogleDrive(fileId: String): String {
-        val drive = googleDriveService
-
-        if (drive == null) {
-            SyncNotifier(context).showSyncError("Failed to sync: error copied to clipboard")
-            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
-            return ""
-        }
-
-        val outputStream = ByteArrayOutputStream()
-        drive.files().get(fileId).executeMediaAndDownloadTo(outputStream)
-        return withContext(Dispatchers.IO) {
-            val gzipInputStream = GZIPInputStream(ByteArrayInputStream(outputStream.toByteArray()))
-            gzipInputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        }
-    }
-
-    /**
-     * Uploads sync data to Google Drive. If a file with the same name already exists,
-     * this function will merge the local and remote data before updating the existing file.
-     *
-     * @param jsonData The JSON string containing the sync data to upload.
-     * @return The JSON string containing the combined local and remote sync data, or null if the Google Drive service is not initialized.
-     */
-    private suspend fun uploadToGoogleDrive(jsonData: String): String? {
-        val fileName = "tachiyomi_sync_data.gz"
-
-        val drive = googleDriveService
-
-        // Check if the Google Drive service is initialized
-        if (drive == null) {
-            logcat(LogPriority.ERROR) { "Google Drive service not initialized" }
-            return null
-        }
-
-        // Search for the existing file by name
-        val query = "mimeType='application/gzip' and trashed = false and name = '$fileName'"
-        val fileList = drive.files().list().setQ(query).execute().files
-        Log.d("GoogleDrive", "File list: $fileList")
-
-        val combinedJsonData: String
-
-        if (fileList.isEmpty()) {
-            // If the file doesn't exist, create a new file with the data
-            val fileMetadata = File()
-            fileMetadata.name = fileName
-            fileMetadata.mimeType = "application/gzip"
-
-            val byteArrayOutputStream = ByteArrayOutputStream()
-
-            withContext(Dispatchers.IO) {
-                val gzipOutputStream = GZIPOutputStream(byteArrayOutputStream)
-                gzipOutputStream.write(jsonData.toByteArray(Charsets.UTF_8))
-                gzipOutputStream.close()
-            }
-
-            val byteArrayContent = ByteArrayContent("application/octet-stream", byteArrayOutputStream.toByteArray())
-            val uploadedFile = drive.files().create(fileMetadata, byteArrayContent)
-                .setFields("id")
-                .execute()
-
-            combinedJsonData = jsonData
-
-            logcat(LogPriority.DEBUG) { "Created sync data file in Google Drive with file ID: ${uploadedFile.id}" }
-        } else {
-            val gdriveFileId = fileList[0].id
-
-            // Download the existing data from Google Drive
-            val existingData = downloadFromGoogleDrive(gdriveFileId)
-            // Merge the local and remote data
-            combinedJsonData = mergeLocalAndRemoteData(jsonData, existingData)
-
-            // Compress the combined JSON data using GZIP
-            val byteArrayOutputStream = ByteArrayOutputStream()
-
-            withContext(Dispatchers.IO) {
-                val gzipOutputStream = GZIPOutputStream(byteArrayOutputStream)
-                gzipOutputStream.write(combinedJsonData.toByteArray(Charsets.UTF_8))
-                gzipOutputStream.close()
-            }
-
-            // Update the file with the compressed data
-            val byteArrayContent = ByteArrayContent("application/octet-stream", byteArrayOutputStream.toByteArray())
-            drive.files().delete(gdriveFileId).execute()
-
-            val fileMetadata = File()
-            fileMetadata.name = fileName
-            fileMetadata.mimeType = "application/gzip"
-
-            val newFile = drive.files().create(fileMetadata, byteArrayContent)
-                .setFields("id")
-                .execute()
-
-            logcat(LogPriority.DEBUG) { "Updated sync data file in Google Drive with file ID: ${newFile.id}" }
-        }
-
-        return combinedJsonData
-    }
-
-    /**
-     * Merges the local and remote sync data into a single JSON string.
-     *
-     * @param localJsonData The JSON string containing the local sync data.
-     * @param remoteJsonData The JSON string containing the remote sync data.
-     * @return The JSON string containing the merged sync data.
-     */
-    private fun mergeLocalAndRemoteData(localJsonData: String, remoteJsonData: String): String {
-        val localSyncData: SData = json.decodeFromString(localJsonData)
-        val remoteSyncData: SData = json.decodeFromString(remoteJsonData)
-
-        val mergedMangaList = mergeMangaLists(localSyncData.backup?.backupManga, remoteSyncData.backup?.backupManga)
-        val mergedCategoriesList = mergeCategoriesLists(localSyncData.backup?.backupCategories, remoteSyncData.backup?.backupCategories)
-
-        // Create the merged Backup object
-        val mergedBackup = Backup(
-            backupManga = mergedMangaList,
-            backupCategories = mergedCategoriesList,
-            backupBrokenSources = localSyncData.backup?.backupBrokenSources ?: emptyList(),
-            backupSources = localSyncData.backup?.backupSources ?: emptyList(),
-        )
-
-        // Create the merged SData object
-        val mergedSyncData = SData(
-            sync = localSyncData.sync, // always use the local sync info
-            backup = mergedBackup,
-            device = localSyncData.device, // always use the local device info
-        )
-
-        return json.encodeToString(mergedSyncData)
-    }
-
-    /**
-     * Merges two lists of SyncManga objects, prioritizing the manga with the most recent lastModifiedAt value.
-     * If lastModifiedAt is null, the function defaults to Instant.MIN for comparison purposes.
-     *
-     * @param localMangaList The list of local SyncManga objects.
-     * @param remoteMangaList The list of remote SyncManga objects.
-     * @return The merged list of SyncManga objects.
-     */
-    private fun mergeMangaLists(localMangaList: List<BackupManga>?, remoteMangaList: List<BackupManga>?): List<BackupManga> {
-        if (localMangaList == null) return remoteMangaList ?: emptyList()
-        if (remoteMangaList == null) return localMangaList
-
-        val localMangaMap = localMangaList.associateBy { Pair(it.source, it.url) }
-        val remoteMangaMap = remoteMangaList.associateBy { Pair(it.source, it.url) }
-
-        val mergedMangaMap = mutableMapOf<Pair<Long, String>, BackupManga>()
-
-        localMangaMap.forEach { (key, localManga) ->
-            val remoteManga = remoteMangaMap[key]
-            if (remoteManga != null) {
-                val localInstant = localManga.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
-                val remoteInstant = remoteManga.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
-
-                val mergedManga = if ((localInstant ?: Instant.MIN) >= (
-                    remoteInstant
-                        ?: Instant.MIN
-                    )
-                ) {
-                    localManga
-                } else {
-                    remoteManga
-                }
-
-                val localChapters = localManga.chapters
-                val remoteChapters = remoteManga.chapters
-                val mergedChapters = mergeChapters(localChapters, remoteChapters)
-
-                val isFavorite = if ((localInstant ?: Instant.MIN) >= (
-                    remoteInstant
-                        ?: Instant.MIN
-                    )
-                ) {
-                    localManga.favorite
-                } else {
-                    remoteManga.favorite
-                }
-
-                mergedMangaMap[key] = mergedManga.copy(chapters = mergedChapters, favorite = isFavorite)
-            } else {
-                mergedMangaMap[key] = localManga
-            }
-        }
-
-        remoteMangaMap.forEach { (key, remoteManga) ->
-            if (!mergedMangaMap.containsKey(key)) {
-                mergedMangaMap[key] = remoteManga
-            }
-        }
-
-        return mergedMangaMap.values.toList()
-    }
-
-    /**
-     * Merges two lists of SyncChapter objects, prioritizing the chapter with the most recent lastModifiedAt value.
-     * If lastModifiedAt is null, the function defaults to Instant.MIN for comparison purposes.
-     *
-     * @param localChapters The list of local SyncChapter objects.
-     * @param remoteChapters The list of remote SyncChapter objects.
-     * @return The merged list of SyncChapter objects.
-     */
-    private fun mergeChapters(localChapters: List<BackupChapter>, remoteChapters: List<BackupChapter>): List<BackupChapter> {
-        val localChapterMap = localChapters.associateBy { it.url }
-        val remoteChapterMap = remoteChapters.associateBy { it.url }
-        val mergedChapterMap = mutableMapOf<String, BackupChapter>()
-
-        localChapterMap.forEach { (url, localChapter) ->
-            val remoteChapter = remoteChapterMap[url]
-            if (remoteChapter != null) {
-                val localInstant = localChapter.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
-                val remoteInstant = remoteChapter.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
-
-                val mergedChapter =
-                    if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
-                        localChapter
-                    } else {
-                        remoteChapter
-                    }
-                mergedChapterMap[url] = mergedChapter
-            } else {
-                mergedChapterMap[url] = localChapter
-            }
-        }
-
-        remoteChapterMap.forEach { (url, remoteChapter) ->
-            if (!mergedChapterMap.containsKey(url)) {
-                mergedChapterMap[url] = remoteChapter
-            }
-        }
-
-        return mergedChapterMap.values.toList()
-    }
-
-    /**
-     * Merges two lists of SyncCategory objects, prioritizing the category with the most recent order value.
-     *
-     * @param localCategoriesList The list of local SyncCategory objects.
-     * @param remoteCategoriesList The list of remote SyncCategory objects.
-     * @return The merged list of SyncCategory objects.
-     */
-    private fun mergeCategoriesLists(localCategoriesList: List<BackupCategory>?, remoteCategoriesList: List<BackupCategory>?): List<BackupCategory> {
-        if (localCategoriesList == null) return remoteCategoriesList ?: emptyList()
-        if (remoteCategoriesList == null) return localCategoriesList
-        val localCategoriesMap = localCategoriesList.associateBy { it.name }
-        val remoteCategoriesMap = remoteCategoriesList.associateBy { it.name }
-
-        val mergedCategoriesMap = mutableMapOf<String, BackupCategory>()
-
-        localCategoriesMap.forEach { (name, localCategory) ->
-            val remoteCategory = remoteCategoriesMap[name]
-            if (remoteCategory != null) {
-                // Compare and merge local and remote categories
-                val mergedCategory = if (localCategory.order >= remoteCategory.order) {
-                    localCategory
-                } else {
-                    remoteCategory
-                }
-                mergedCategoriesMap[name] = mergedCategory
-            } else {
-                // If the category is only in the local list, add it to the merged list
-                mergedCategoriesMap[name] = localCategory
-            }
-        }
-
-        // Add any categories from the remote list that are not in the local list
-        remoteCategoriesMap.forEach { (name, remoteCategory) ->
-            if (!mergedCategoriesMap.containsKey(name)) {
-                mergedCategoriesMap[name] = remoteCategory
-            }
-        }
-
-        return mergedCategoriesMap.values.toList()
     }
 }

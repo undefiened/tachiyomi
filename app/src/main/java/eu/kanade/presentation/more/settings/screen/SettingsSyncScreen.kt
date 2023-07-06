@@ -50,8 +50,8 @@ object SettingsSyncScreen : SearchableSettings {
                 title = stringResource(R.string.pref_sync_service),
                 entries = mapOf(
                     0 to stringResource(R.string.off),
-                    1 to stringResource(R.string.google_drive),
-                    2 to stringResource(R.string.self_host),
+                    1 to stringResource(R.string.syncyomi),
+                    2 to stringResource(R.string.google_drive),
                 ),
                 onValueChanged = { true },
             ),

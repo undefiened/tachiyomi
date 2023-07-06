@@ -1,4 +1,5 @@
-package eu.kanade.tachiyomi.data.sync
+package eu.kanade.tachiyomi.data.sync.service
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -21,6 +22,7 @@ import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupChapter
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
+import eu.kanade.tachiyomi.data.sync.SyncNotifier
 import eu.kanade.tachiyomi.data.sync.models.SData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,17 +41,44 @@ import java.time.Instant
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-class GoogleDriveSync(private val context: Context) {
-    private val syncPreferences = Injekt.get<SyncPreferences>()
-    private var json: Json = Json {
-        encodeDefaults = true
-        ignoreUnknownKeys = true
-    }
+class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: SyncPreferences) : SyncService(context, json, syncPreferences) {
+    constructor(context: Context) : this(
+        context,
+        Json {
+            encodeDefaults = true
+            ignoreUnknownKeys = true
+        },
+        Injekt.get<SyncPreferences>(),
+    )
 
     private var googleDriveService: Drive? = null
 
     init {
         initGoogleDriveService()
+    }
+
+    override suspend fun doSync(syncData: SData): Backup? {
+        logcat(
+            LogPriority.DEBUG,
+        ) { "GoogleDrive sync started!" }
+
+        val jsonData = json.encodeToString(syncData)
+
+        refreshToken()
+
+        val combinedJsonData = uploadToGoogleDrive(jsonData)
+
+        if (combinedJsonData != null) {
+            logcat(
+                LogPriority.DEBUG,
+            ) { "GoogleDrive sync completed!" }
+            return decodeSyncBackup(combinedJsonData)
+        }
+
+        logcat(
+            LogPriority.DEBUG,
+        ) { "GoogleDrive sync failed!" }
+        return null
     }
 
     /**
@@ -282,7 +311,7 @@ class GoogleDriveSync(private val context: Context) {
      * @param jsonData The JSON string containing the sync data to upload.
      * @return The JSON string containing the combined local and remote sync data, or null if the Google Drive service is not initialized.
      */
-    suspend fun uploadToGoogleDrive(jsonData: String): String? {
+    private suspend fun uploadToGoogleDrive(jsonData: String): String? {
         val fileName = "tachiyomi_sync_data.gz"
 
         val drive = googleDriveService
@@ -412,7 +441,11 @@ class GoogleDriveSync(private val context: Context) {
                 val localInstant = localManga.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
                 val remoteInstant = remoteManga.lastModifiedAt?.let { Instant.ofEpochMilli(it) }
 
-                val mergedManga = if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
+                val mergedManga = if ((localInstant ?: Instant.MIN) >= (
+                    remoteInstant
+                        ?: Instant.MIN
+                    )
+                ) {
                     localManga
                 } else {
                     remoteManga
@@ -422,7 +455,11 @@ class GoogleDriveSync(private val context: Context) {
                 val remoteChapters = remoteManga.chapters
                 val mergedChapters = mergeChapters(localChapters, remoteChapters)
 
-                val isFavorite = if ((localInstant ?: Instant.MIN) >= (remoteInstant ?: Instant.MIN)) {
+                val isFavorite = if ((localInstant ?: Instant.MIN) >= (
+                    remoteInstant
+                        ?: Instant.MIN
+                    )
+                ) {
                     localManga.favorite
                 } else {
                     remoteManga.favorite

@@ -5,7 +5,7 @@ import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupChapter
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
-import eu.kanade.tachiyomi.data.sync.models.SData
+import eu.kanade.tachiyomi.data.sync.models.SyncData
 import kotlinx.serialization.json.Json
 import tachiyomi.domain.sync.SyncPreferences
 import java.time.Instant
@@ -15,7 +15,7 @@ abstract class StorageSyncService(
     json: Json,
     syncPreferences: SyncPreferences,
 ) : SyncService(context, json, syncPreferences) {
-    override suspend fun doSync(syncData: SData): Backup? {
+    override suspend fun doSync(syncData: SyncData): Backup? {
         beforeSync()
 
         val remoteSData = downloadSyncData()
@@ -41,12 +41,12 @@ abstract class StorageSyncService(
     /**
      * Download sync data from the remote storage
      */
-    abstract suspend fun downloadSyncData(): SData?
+    abstract suspend fun downloadSyncData(): SyncData?
 
     /**
      * Upload sync data to the remote storage
      */
-    abstract suspend fun uploadSyncData(syncData: SData)
+    abstract suspend fun uploadSyncData(syncData: SyncData)
 
     /**
      * Merges the local and remote sync data into a single JSON string.
@@ -55,7 +55,7 @@ abstract class StorageSyncService(
      * @param remoteSyncData The SData containing the remote sync data.
      * @return The JSON string containing the merged sync data.
      */
-    fun mergeSyncData(localSyncData: SData, remoteSyncData: SData): SData {
+    fun mergeSyncData(localSyncData: SyncData, remoteSyncData: SyncData): SyncData {
         val mergedMangaList = mergeMangaLists(localSyncData.backup?.backupManga, remoteSyncData.backup?.backupManga)
         val mergedCategoriesList = mergeCategoriesLists(localSyncData.backup?.backupCategories, remoteSyncData.backup?.backupCategories)
 
@@ -68,7 +68,7 @@ abstract class StorageSyncService(
         )
 
         // Create the merged SData object
-        return SData(
+        return SyncData(
             sync = localSyncData.sync, // always use the local sync info
             backup = mergedBackup,
             device = localSyncData.device, // always use the local device info

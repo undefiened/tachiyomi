@@ -26,6 +26,7 @@ import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.data.sync.service.GoogleDriveService
 import eu.kanade.tachiyomi.data.sync.service.GoogleDriveSyncService
+import eu.kanade.tachiyomi.data.sync.SyncManager.SyncService
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.launch
 import tachiyomi.domain.sync.SyncPreferences
@@ -41,7 +42,7 @@ object SettingsSyncScreen : SearchableSettings {
 
     @Composable
     override fun getPreferences(): List<Preference> {
-        val syncPreferences = Injekt.get<SyncPreferences>()
+        val syncPreferences = remember { Injekt.get<SyncPreferences>() }
         val syncService by syncPreferences.syncService().collectAsState()
 
         return listOf(
@@ -49,9 +50,9 @@ object SettingsSyncScreen : SearchableSettings {
                 pref = syncPreferences.syncService(),
                 title = stringResource(R.string.pref_sync_service),
                 entries = mapOf(
-                    0 to stringResource(R.string.off),
-                    1 to stringResource(R.string.syncyomi),
-                    2 to stringResource(R.string.google_drive),
+                    SyncService.NONE.value to stringResource(R.string.off),
+                    SyncService.SYNCYOMI.value to stringResource(R.string.syncyomi),
+                    SyncService.GOOGLE_DRIVE.value to stringResource(R.string.google_drive),
                 ),
                 onValueChanged = { true },
             ),
@@ -60,18 +61,13 @@ object SettingsSyncScreen : SearchableSettings {
 
     @Composable
     private fun getSyncServicePreferences(syncPreferences: SyncPreferences, syncService: Int): List<Preference> {
-        val servicePreferences = when (syncService) {
-            1 -> getGoogleDrivePreferences()
-            2 -> getSelfHostPreferences(syncPreferences)
-            else -> emptyList()
-        }
-
-        return if (syncService != 0) {
-            servicePreferences + getSyncNowPref() + getAutomaticSyncGroup(syncPreferences)
-        } else {
-            servicePreferences
-        }
+        return when (SyncService.fromInt(syncService)) {
+            SyncService.NONE -> emptyList()
+            SyncService.SYNCYOMI -> getSelfHostPreferences(syncPreferences)
+            SyncService.GOOGLE_DRIVE -> getGoogleDrivePreferences()
+        } + getSyncNowPref() + getAutomaticSyncGroup(syncPreferences)
     }
+
 
     @Composable
     private fun getGoogleDrivePreferences(): List<Preference> {
@@ -157,7 +153,7 @@ object SettingsSyncScreen : SearchableSettings {
                 onConfirm = {
                     showDialog.value = false
                     scope.launch {
-                        if (!SyncDataJob.isManualJobRunning(context)) {
+                        if (!SyncDataJob.isAnyJobRunning(context)) {
                             SyncDataJob.startNow(context)
                         } else {
                             context.toast(R.string.sync_in_progress)
@@ -211,7 +207,7 @@ object SettingsSyncScreen : SearchableSettings {
                         true
                     },
                 ),
-                Preference.PreferenceItem.InfoPreference(stringResource(R.string.last_synchronization) + ": " + formattedLastSync),
+                Preference.PreferenceItem.InfoPreference(stringResource(R.string.last_synchronization, formattedLastSync)),
             ),
         )
     }

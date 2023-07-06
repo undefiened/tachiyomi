@@ -560,7 +560,7 @@
     <string name="pref_purge_confirmation_title">Purge confirmation</string>
     <string name="pref_purge_confirmation_message">Purging sync data will delete all your sync data from Google Drive. Are you sure you want to continue?</string>
     <string name="sync_completed_message">Done in %1$s</string>
-    <string name="last_synchronization">Last Synchronization</string>
+    <string name="last_synchronization">Last Synchronization: %1$s</string>
 
 
 

@@ -6,8 +6,8 @@ import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupChapter
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.sync.SyncNotifier
-import eu.kanade.tachiyomi.data.sync.models.SData
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.data.sync.models.SyncData
 import eu.kanade.tachiyomi.network.POST
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -28,7 +28,7 @@ class SyncYomiSyncService(
     syncPreferences: SyncPreferences,
     private val notifier: SyncNotifier,
 ) : SyncService(context, json, syncPreferences) {
-    override suspend fun doSync(syncData: SData): Backup? {
+    override suspend fun doSync(syncData: SyncData): Backup? {
         logcat(
             LogPriority.DEBUG,
         ) { "SyncYomi sync started!" }
@@ -38,14 +38,14 @@ class SyncYomiSyncService(
         val mediaType = "application/gzip".toMediaTypeOrNull()
         val body = jsonData.toRequestBody(mediaType).gzip()
 
-        val remoteSData = downloadSyncData()
+        val remoteSyncData = downloadSyncData()
 
         val finalSyncData =
-            if (remoteSData?.backup == null) {
+            if (remoteSyncData?.backup == null) {
                 uploadSyncData(body)
                 syncData
             } else {
-                val mergedSyncData = mergeSyncData(syncData, remoteSData)
+                val mergedSyncData = mergeSyncData(syncData, remoteSyncData)
                 val encodeMergedData = json.encodeToString(mergedSyncData)
                 uploadSyncData(encodeMergedData.toRequestBody(mediaType).gzip())
                 mergedSyncData
@@ -54,7 +54,7 @@ class SyncYomiSyncService(
         return finalSyncData.backup
     }
 
-    suspend fun downloadSyncData(): SData? {
+    suspend fun downloadSyncData(): SyncData? {
         val host = syncPreferences.syncHost().get()
         val apiKey = syncPreferences.syncAPIKey().get()
         val deviceId = syncPreferences.deviceID().get()
@@ -72,7 +72,7 @@ class SyncYomiSyncService(
             val responseBody = response.body.string()
 
             if (response.isSuccessful) {
-                return json.decodeFromString<SData>(responseBody)
+                return json.decodeFromString<SyncData>(responseBody)
             } else {
                 notifier.showSyncError("Failed to download sync data: $responseBody")
                 responseBody.let { logcat(LogPriority.ERROR) { "SyncError:$it" } }
@@ -112,11 +112,11 @@ class SyncYomiSyncService(
     /**
      * Merges the local and remote sync data into a single JSON string.
      *
-     * @param localSyncData The SData containing the local sync data.
-     * @param remoteSyncData The SData containing the remote sync data.
+     * @param localSyncData The SyncData containing the local sync data.
+     * @param remoteSyncData The SyncData containing the remote sync data.
      * @return The JSON string containing the merged sync data.
      */
-    fun mergeSyncData(localSyncData: SData, remoteSyncData: SData): SData {
+    fun mergeSyncData(localSyncData: SyncData, remoteSyncData: SyncData): SyncData {
         val mergedMangaList = mergeMangaLists(localSyncData.backup?.backupManga, remoteSyncData.backup?.backupManga)
         val mergedCategoriesList = mergeCategoriesLists(localSyncData.backup?.backupCategories, remoteSyncData.backup?.backupCategories)
 
@@ -128,8 +128,8 @@ class SyncYomiSyncService(
             backupSources = localSyncData.backup?.backupSources ?: emptyList(),
         )
 
-        // Create the merged SData object
-        return SData(
+        // Create the merged SyncData object
+        return SyncData(
             sync = localSyncData.sync, // always use the local sync info
             backup = mergedBackup,
             device = localSyncData.device, // always use the local device info

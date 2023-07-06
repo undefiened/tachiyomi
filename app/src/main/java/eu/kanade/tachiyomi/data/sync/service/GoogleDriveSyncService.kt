@@ -18,7 +18,7 @@ import com.google.api.client.json.jackson2.JacksonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
-import eu.kanade.tachiyomi.data.sync.models.SData
+import eu.kanade.tachiyomi.data.sync.models.SyncData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -51,7 +51,7 @@ class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: Sync
 
     override suspend fun beforeSync() = googleDriveService.refreshToken()
 
-    override suspend fun downloadSyncData(): SData? {
+    override suspend fun downloadSyncData(): SyncData? {
         val drive = googleDriveService.googleDriveService
 
         // Check if the Google Drive service is initialized
@@ -74,10 +74,10 @@ class GoogleDriveSyncService(context: Context, json: Json, syncPreferences: Sync
             gzipInputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         }
 
-        return json.decodeFromString(SData.serializer(), jsonString)
+        return json.decodeFromString(SyncData.serializer(), jsonString)
     }
 
-    override suspend fun uploadSyncData(syncData: SData) {
+    override suspend fun uploadSyncData(syncData: SyncData) {
         val jsonData = json.encodeToString(syncData)
 
         val drive = googleDriveService.googleDriveService

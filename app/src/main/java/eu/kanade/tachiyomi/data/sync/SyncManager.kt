@@ -51,7 +51,8 @@ class SyncManager(
     enum class SyncService(val value: Int) {
         NONE(0),
         SYNCYOMI(1),
-        GOOGLE_DRIVE(2);
+        GOOGLE_DRIVE(2),
+        ;
 
         companion object {
             fun fromInt(value: Int) = values().firstOrNull { it.value == value } ?: NONE

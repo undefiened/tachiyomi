@@ -2,8 +2,8 @@ package eu.kanade.tachiyomi.data.sync.service
 
 import android.content.Context
 import eu.kanade.tachiyomi.data.sync.SyncNotifier
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.data.sync.models.SyncData
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -81,4 +81,4 @@ class SyncYomiSyncService(
             }
         }
     }
- }
+}

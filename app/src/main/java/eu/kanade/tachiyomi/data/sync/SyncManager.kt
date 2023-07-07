@@ -49,8 +49,9 @@ class SyncManager(
     private val notifier: SyncNotifier = SyncNotifier(context)
 
     enum class SyncService(val value: Int) {
-        NONE(0), GOOGLE_DRIVE(1), SELF_HOSTED(2),
-        ;
+        NONE(0),
+        SYNCYOMI(1),
+        GOOGLE_DRIVE(2);
 
         companion object {
             fun fromInt(value: Int) = values().firstOrNull { it.value == value } ?: NONE
@@ -93,17 +94,17 @@ class SyncManager(
 
         // Handle sync based on the selected service
         val syncService = when (val syncService = SyncService.fromInt(syncPreferences.syncService().get())) {
-            SyncService.GOOGLE_DRIVE -> {
-                GoogleDriveSyncService(context, json, syncPreferences)
-            }
-
-            SyncService.SELF_HOSTED -> {
+            SyncService.SYNCYOMI -> {
                 SyncYomiSyncService(
                     context,
                     json,
                     syncPreferences,
                     notifier,
                 )
+            }
+
+            SyncService.GOOGLE_DRIVE -> {
+                GoogleDriveSyncService(context, json, syncPreferences)
             }
 
             else -> {

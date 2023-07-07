@@ -548,7 +548,7 @@
     <string name="pref_sync_service_category">Automatic Synchronization</string>
     <string name="pref_sync_interval">Synchronization frequency</string>
     <string name="google_drive">Google Drive</string>
-    <string name="self_host">Self-hosted (SyncYomi)</string>
+    <string name="syncyomi">SyncYomi</string>
     <string name="pref_google_drive_sign_in">Sign in</string>
     <string name="google_drive_sign_in_success">Signed in successfully</string>
     <string name="google_drive_sign_in_failed">Sign in failed</string>
